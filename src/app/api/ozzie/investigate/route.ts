@@ -103,8 +103,9 @@ Start with mind_query, then fill the highest-value gaps. When you have enough, r
 
 export async function POST(req: NextRequest) {
   if (!OPENROUTER_KEY) return NextResponse.json({ error: 'Ozzie not configured (OPENROUTER_API_KEY missing)' }, { status: 503 });
-  // Pro gate — investigations are a paid feature ($49/mo) or comp.
-  if (!verifySession(req.cookies.get(PRO_COOKIE)?.value)) {
+  // Pro gate — investigations are a paid feature ($49/mo), comp, or internal cron/service.
+  const isService = Boolean(process.env.CRON_SECRET) && req.headers.get('x-ozzie-service') === process.env.CRON_SECRET;
+  if (!isService && !verifySession(req.cookies.get(PRO_COOKIE)?.value)) {
     return NextResponse.json({ error: 'Osiris Pro required', upgrade: '/ozzie' }, { status: 402 });
   }
   const body = await req.json().catch(() => ({}));

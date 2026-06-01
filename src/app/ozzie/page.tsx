@@ -32,10 +32,20 @@ export default function OzziePage() {
   const [pro, setPro] = useState<boolean | null>(null);
   const [email, setEmail] = useState('');
   const [upgrading, setUpgrading] = useState(false);
+  const [watchlist, setWatchlist] = useState<string[]>([]);
+  const [watchInput, setWatchInput] = useState('');
 
   useEffect(() => {
-    fetch('/api/billing/comp?status=1').then((r) => r.json()).then((d) => setPro(Boolean(d.pro))).catch(() => setPro(false));
+    fetch('/api/billing/comp?status=1').then((r) => r.json()).then((d) => {
+      setPro(Boolean(d.pro));
+      if (d.pro) fetch('/api/ozzie/watchlist').then((r) => r.json()).then((w) => setWatchlist(w.watchlist || [])).catch(() => {});
+    }).catch(() => setPro(false));
   }, []);
+
+  async function watch(action: 'add' | 'remove', t: string) {
+    const r = await fetch('/api/ozzie/watchlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, target: t }) });
+    const d = await r.json(); if (d.watchlist) setWatchlist(d.watchlist); setWatchInput('');
+  }
 
   async function upgrade() {
     if (upgrading) return; setUpgrading(true); setError('');
@@ -125,6 +135,26 @@ export default function OzziePage() {
           </div>
         )}
 
+        {pro && (
+          <div style={S.watch}>
+            <div style={S.watchHead}>📌 Watchlist <span style={{ color: '#567', fontWeight: 400 }}>· Ozzie rescans daily &amp; emails a digest</span></div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <input style={{ ...S.input, padding: '10px 12px', fontSize: 14 }} placeholder="add a target to monitor…" value={watchInput} onChange={(e) => setWatchInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && watchInput.trim() && watch('add', watchInput.trim().toLowerCase())} />
+              <button style={{ ...S.btn, padding: '10px 16px', fontSize: 14 }} onClick={() => watchInput.trim() && watch('add', watchInput.trim().toLowerCase())}>Add</button>
+            </div>
+            {watchlist.length === 0 ? <div style={{ color: '#567', fontSize: 13 }}>No targets yet.</div> :
+              watchlist.map((w) => (
+                <div key={w} style={S.watchRow}>
+                  <span style={{ color: '#cfe' }}>{w}</span>
+                  <span>
+                    <button style={S.miniBtn} onClick={() => { setTarget(w); setTimeout(investigate, 0); }}>investigate</button>
+                    <button style={{ ...S.miniBtn, color: '#f88' }} onClick={() => watch('remove', w)}>remove</button>
+                  </span>
+                </div>
+              ))}
+          </div>
+        )}
+
         <footer style={S.footer}>
           Osiris · open-source intelligence · <a href="/" style={{ color: '#00E5FF' }}>← back to the globe</a>
         </footer>
@@ -155,4 +185,8 @@ const S: Record<string, React.CSSProperties> = {
   pwTitle: { fontSize: 13, letterSpacing: 2, color: '#00E5FF', fontWeight: 700, textTransform: 'uppercase' },
   pwPrice: { fontSize: 46, fontWeight: 800, color: '#eaf6ff', margin: '4px 0 14px' },
   pwList: { textAlign: 'left', color: '#bcd', fontSize: 14, lineHeight: 1.9, margin: '0 0 18px', paddingLeft: 20 },
+  watch: { marginTop: 24, background: '#070f17', border: '1px solid #122636', borderRadius: 12, padding: '18px 20px' },
+  watchHead: { fontSize: 14, fontWeight: 700, color: '#9bd', marginBottom: 12 },
+  watchRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderTop: '1px solid #0e1f2b', fontSize: 14 },
+  miniBtn: { background: 'none', border: '1px solid #1d3b4d', color: '#9bd', borderRadius: 6, padding: '3px 10px', marginLeft: 6, cursor: 'pointer', fontSize: 12 },
 };

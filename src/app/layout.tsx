@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import OzzieDock from "@/components/OzzieDock";
 
 const SITE_URL = "https://osirisai.live";
 const SITE_NAME = "OSIRIS";
@@ -202,6 +203,7 @@ export default function RootLayout({
         <ErrorBoundary name="OSIRIS Core">
           {children}
         </ErrorBoundary>
+        <OzzieDock />
       </body>
     </html>
   );

@@ -6,7 +6,9 @@ import { listMonitors, saveMonitors, parseMonitor, type Monitor } from '@/lib/mo
 export const dynamic = 'force-dynamic';
 export const maxDuration = 45;
 
-const gate = (req: NextRequest) => Boolean(verifySession(req.cookies.get(PRO_COOKIE)?.value));
+const gate = (req: NextRequest) =>
+  (Boolean(process.env.CRON_SECRET) && req.headers.get('x-ozzie-service') === process.env.CRON_SECRET) ||
+  Boolean(verifySession(req.cookies.get(PRO_COOKIE)?.value));
 const id = () => `m_${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;
 
 export async function GET(req: NextRequest) {

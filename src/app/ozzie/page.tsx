@@ -6,7 +6,7 @@
    Ozzie runs the recursive OSINT enrichment loop and returns a cited
    dossier + the tool trace. Persists to the @ozzie knowledge graph.
    ═══════════════════════════════════════════════════════════════ */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface TraceStep { step: number; tool?: string; input?: string; thought?: string; }
 interface OzzieResult { target: string; dossier: string; steps: number; persisted_to_mind: boolean; trace: TraceStep[]; }
@@ -29,6 +29,22 @@ export default function OzziePage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<OzzieResult | null>(null);
   const [error, setError] = useState('');
+  const [pro, setPro] = useState<boolean | null>(null);
+  const [email, setEmail] = useState('');
+  const [upgrading, setUpgrading] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/billing/comp?status=1').then((r) => r.json()).then((d) => setPro(Boolean(d.pro))).catch(() => setPro(false));
+  }, []);
+
+  async function upgrade() {
+    if (upgrading) return; setUpgrading(true); setError('');
+    try {
+      const r = await fetch('/api/billing/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+      const d = await r.json();
+      if (d.url) window.location.href = d.url; else setError('Checkout unavailable — try again.');
+    } catch { setError('Checkout error — try again.'); } finally { setUpgrading(false); }
+  }
 
   async function investigate() {
     const t = target.trim();
@@ -39,6 +55,7 @@ export default function OzziePage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target: t }),
       });
+      if (r.status === 402) { setPro(false); setError('Osiris Pro required to run investigations.'); return; }
       if (!r.ok) { setError(`Ozzie error (${r.status}). ${r.status === 503 ? 'Not configured.' : 'Try again.'}`); return; }
       setResult(await r.json());
     } catch { setError('Network error — try again.'); }
@@ -53,19 +70,37 @@ export default function OzziePage() {
           <div style={S.tag}>Autonomous OSINT analyst · powered by MIND</div>
         </header>
 
-        <div style={S.bar}>
-          <input
-            style={S.input}
-            placeholder="Enter a target — domain, IP, org, or person (e.g. openai.com)"
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && investigate()}
-            disabled={loading}
-          />
-          <button style={{ ...S.btn, opacity: loading ? 0.6 : 1 }} onClick={investigate} disabled={loading}>
-            {loading ? 'Investigating…' : 'Investigate'}
-          </button>
-        </div>
+        {pro === false ? (
+          <div style={S.paywall}>
+            <div style={S.pwTitle}>Osiris Pro</div>
+            <div style={S.pwPrice}>$49<span style={{ fontSize: 16, color: '#7a8' }}>/mo</span></div>
+            <ul style={S.pwList}>
+              <li>Unlimited Ozzie investigations (recursive OSINT → cited dossiers)</li>
+              <li>RECON toolkit (WHOIS · DNS · certs · CVE · sanctions · IP)</li>
+              <li>Persistent intelligence knowledge graph</li>
+              <li>Watchlists &amp; alerts (coming online)</li>
+            </ul>
+            <input style={S.input} placeholder="your@email.com" value={email} type="email" onChange={(e) => setEmail(e.target.value)} />
+            <button style={{ ...S.btn, width: '100%', marginTop: 10, opacity: upgrading ? 0.6 : 1 }} onClick={upgrade} disabled={upgrading}>
+              {upgrading ? 'Starting checkout…' : 'Upgrade to Pro →'}
+            </button>
+            <div style={{ fontSize: 11, color: '#567', marginTop: 8 }}>Secure checkout via Stripe · cancel anytime</div>
+          </div>
+        ) : (
+          <div style={S.bar}>
+            <input
+              style={S.input}
+              placeholder="Enter a target — domain, IP, org, or person (e.g. openai.com)"
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && investigate()}
+              disabled={loading || pro === null}
+            />
+            <button style={{ ...S.btn, opacity: loading || pro === null ? 0.6 : 1 }} onClick={investigate} disabled={loading || pro === null}>
+              {loading ? 'Investigating…' : 'Investigate'}
+            </button>
+          </div>
+        )}
 
         {loading && <div style={S.note}>Ozzie is running the recursive enrichment loop — recall → OSINT tools → synthesise. This takes ~30–90s.</div>}
         {error && <div style={{ ...S.note, color: '#FF6B6B' }}>{error}</div>}
@@ -116,4 +151,8 @@ const S: Record<string, React.CSSProperties> = {
   traceRow: { display: 'flex', gap: 10, alignItems: 'center', padding: '4px 0', fontSize: 13 },
   toolTag: { background: '#0d2433', color: '#00E5FF', borderRadius: 6, padding: '2px 8px', fontFamily: 'monospace', fontSize: 12 },
   footer: { marginTop: 40, textAlign: 'center', fontSize: 12, color: '#456' },
+  paywall: { background: '#08131d', border: '1px solid #16303f', borderRadius: 14, padding: '28px 30px', maxWidth: 480, margin: '0 auto', textAlign: 'center' },
+  pwTitle: { fontSize: 13, letterSpacing: 2, color: '#00E5FF', fontWeight: 700, textTransform: 'uppercase' },
+  pwPrice: { fontSize: 46, fontWeight: 800, color: '#eaf6ff', margin: '4px 0 14px' },
+  pwList: { textAlign: 'left', color: '#bcd', fontSize: 14, lineHeight: 1.9, margin: '0 0 18px', paddingLeft: 20 },
 };

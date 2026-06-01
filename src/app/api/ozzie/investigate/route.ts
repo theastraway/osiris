@@ -13,6 +13,7 @@
  * ═══════════════════════════════════════════════════════════════
  */
 import { NextRequest, NextResponse, after } from 'next/server';
+import { verifySession, PRO_COOKIE } from '@/lib/billing';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 150;
@@ -102,6 +103,10 @@ Start with mind_query, then fill the highest-value gaps. When you have enough, r
 
 export async function POST(req: NextRequest) {
   if (!OPENROUTER_KEY) return NextResponse.json({ error: 'Ozzie not configured (OPENROUTER_API_KEY missing)' }, { status: 503 });
+  // Pro gate — investigations are a paid feature ($49/mo) or comp.
+  if (!verifySession(req.cookies.get(PRO_COOKIE)?.value)) {
+    return NextResponse.json({ error: 'Osiris Pro required', upgrade: '/ozzie' }, { status: 402 });
+  }
   const body = await req.json().catch(() => ({}));
   const target = (body.target || '').toString().trim();
   if (!target) return NextResponse.json({ error: 'Missing target' }, { status: 400 });

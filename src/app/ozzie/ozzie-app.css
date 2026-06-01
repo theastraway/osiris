@@ -114,7 +114,7 @@
 
 /* ── Mobile ── */
 .oz-mtabs { display: none; }
-@media (max-width: 1023px) { .oz-work { grid-template-columns: 1fr; } .oz-rail { display: none; } }
+@media (max-width: 1023px) { .oz-work, .oz-work.solo { display: block; } .oz-rail { display: none; } }
 @media (max-width: 760px) {
   .oz-app { grid-template-columns: 1fr; }
   .oz-side { display: none; }

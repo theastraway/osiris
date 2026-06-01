@@ -8,6 +8,13 @@ COMPOSE="docker compose -p osiris -f docker-compose.osiris.yml"
 
 echo "── Osiris deploy on $(hostname) @ $(date -u +%FT%TZ) ──"
 
+# 0. Build insurance: ensure ≥2G swap so `next build` can't OOM-kill cc-bridge.
+if [ "$(free -m | awk '/Swap:/{print $2}')" -lt 1024 ]; then
+  echo "── adding 2G swapfile (build insurance) ──"
+  fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+  grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
 # 1. Sanity: don't clobber anything bound to 80/443/3001 that isn't ours.
 for port in 80 443; do
   if ss -ltn "( sport = :$port )" | grep -q LISTEN && ! docker ps --format '{{.Names}}' | grep -q osiris-caddy; then
@@ -18,9 +25,9 @@ done
 # 2. Ensure .env.osiris exists (empty is fine for the vanilla globe).
 [ -f .env.osiris ] || { echo "creating empty .env.osiris (keyless globe works)"; cp .env.osiris.example .env.osiris; }
 
-# 3. Pull + (re)create the stack.
-$COMPOSE pull
-$COMPOSE up -d --remove-orphans
+# 3. Build (osiris) + pull (caddy/postgres) + (re)create the stack.
+$COMPOSE pull caddy postgres
+$COMPOSE up -d --build --remove-orphans
 
 # 4. Health check — wait up to 90s for the app to answer internally.
 echo "── waiting for app health ──"

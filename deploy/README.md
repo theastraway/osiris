@@ -15,12 +15,19 @@ Target: **DO1-Achilles** `45.55.224.170` (verified lightest box: 2.7 GB free, 0.
 2. **Firewall**: allow inbound 80 + 443 on the droplet. Leave existing service ports as-is.
 
 ## Deploy (run on the droplet)
-```bash
-# from a clone of theastraway/osiris on DO1
-cd osiris/deploy
-cp .env.osiris.example .env.osiris   # Phase 1: leave keys blank, keyless feeds work
-bash deploy-do1.sh                   # idempotent; safe to re-run
+The upstream `ghcr.io/aiacos/osiris` image is **private**, so we build from source. Layout on the box:
 ```
+/root/osiris/app      # clone of the OSIRIS source (has the Dockerfile)
+/root/osiris/deploy   # this bundle (compose builds ../app)
+```
+```bash
+# place source next to the deploy bundle
+git clone https://github.com/simplifaisoul/osiris /root/osiris/app
+cd /root/osiris/deploy
+cp .env.osiris.example .env.osiris   # Phase 1: leave keys blank, keyless feeds work
+bash deploy-do1.sh                   # idempotent; builds osiris-local:latest, safe to re-run
+```
+Building Next.js wants headroom; the deploy ensures a swapfile exists as insurance for the 4 GB box.
 
 ## Verify
 - `https://osiris.m-i-n-d.ai` and `https://ozzie.m-i-n-d.ai` load the globe (CDP desktop + 390px mobile).

@@ -11,7 +11,13 @@ name: osiris
 
 services:
   osiris:
-    image: ghcr.io/aiacos/osiris:latest      # Phase 2+: build: { context: .. , dockerfile: ../Dockerfile }
+    # The upstream ghcr.io/aiacos/osiris image is private (unauthorized pull),
+    # so we build our own from the fork source. `app/` is a clone of the OSIRIS
+    # source placed next to this deploy dir on the host (see README).
+    build:
+      context: ../app
+      dockerfile: Dockerfile
+    image: osiris-local:latest
     container_name: osiris-app
     env_file:
       - path: ./.env.osiris

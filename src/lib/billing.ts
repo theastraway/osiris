@@ -6,6 +6,8 @@
 import crypto from 'crypto';
 
 export const PRO_COOKIE = 'osiris_pro';
+export const FREE_COOKIE = 'osiris_free';
+export const FREE_DAILY = 2;          // free Ozzie investigations per day (summary-only)
 const SECRET = process.env.SESSION_SECRET || 'dev-insecure-secret-change-me';
 export const STRIPE_KEY = process.env.STRIPE_SECRET_KEY || '';
 export const STRIPE_PRICE_PRO = process.env.STRIPE_PRICE_PRO || '';
@@ -34,6 +36,33 @@ export function verifySession(cookie: string | undefined): { email: string; sub:
     if (typeof body.exp !== 'number' || body.exp < Date.now()) return null;
     return body;
   } catch { return null; }
+}
+
+/** Free-tier daily usage cookie {d:YYYY-MM-DD, n:count}, HMAC-signed. */
+export function readFreeUsage(cookie: string | undefined): { d: string; n: number } {
+  const today = new Date().toISOString().slice(0, 10);
+  if (cookie && cookie.includes('.')) {
+    const [data, sig] = cookie.split('.');
+    const expect = crypto.createHmac('sha256', SECRET).update(data).digest('base64url');
+    if (sig.length === expect.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) {
+      try { const b = JSON.parse(Buffer.from(data, 'base64url').toString()); if (b.d === today) return { d: today, n: Number(b.n) || 0 }; } catch { /* reset */ }
+    }
+  }
+  return { d: today, n: 0 };
+}
+export function signFreeUsage(u: { d: string; n: number }): string {
+  const data = b64u(JSON.stringify(u));
+  return `${data}.${crypto.createHmac('sha256', SECRET).update(data).digest('base64url')}`;
+}
+
+/** Split a dossier into the free Summary and the gated remainder (counts for the teaser). */
+export function gateDossier(dossier: string): { summary: string; lockedFindings: number; lockedRiskFlags: number } {
+  const idx = dossier.search(/##\s*Findings/i);
+  const summary = idx > 0 ? dossier.slice(0, idx).trim() : dossier.split('\n').slice(0, 6).join('\n');
+  const findings = (dossier.match(/^\s*[-*•]/gm) || []).length;
+  const riskBlock = dossier.match(/##\s*Risk Flags([\s\S]*?)(?:\n##|$)/i)?.[1] || '';
+  const riskFlags = (riskBlock.match(/^\s*[-*•]/gm) || []).length;
+  return { summary, lockedFindings: Math.max(findings - riskFlags, 0), lockedRiskFlags: riskFlags };
 }
 
 /** Stripe REST helper (form-encoded). */

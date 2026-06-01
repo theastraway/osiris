@@ -13,7 +13,7 @@
  * ═══════════════════════════════════════════════════════════════
  */
 import { NextRequest, NextResponse, after } from 'next/server';
-import { verifySession, PRO_COOKIE } from '@/lib/billing';
+import { verifySession, PRO_COOKIE, FREE_COOKIE, FREE_DAILY, readFreeUsage, signFreeUsage, gateDossier } from '@/lib/billing';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 150;
@@ -103,10 +103,17 @@ Start with mind_query, then fill the highest-value gaps. When you have enough, r
 
 export async function POST(req: NextRequest) {
   if (!OPENROUTER_KEY) return NextResponse.json({ error: 'Ozzie not configured (OPENROUTER_API_KEY missing)' }, { status: 503 });
-  // Pro gate — investigations are a paid feature ($49/mo), comp, or internal cron/service.
+  // Tiering: cron/service + Pro get full dossiers; free tier gets FREE_DAILY/day,
+  // summary-only (the findings/risk-flags are gated to drive upgrades).
   const isService = Boolean(process.env.CRON_SECRET) && req.headers.get('x-ozzie-service') === process.env.CRON_SECRET;
-  if (!isService && !verifySession(req.cookies.get(PRO_COOKIE)?.value)) {
-    return NextResponse.json({ error: 'Osiris Pro required', upgrade: '/ozzie' }, { status: 402 });
+  const isPro = isService || Boolean(verifySession(req.cookies.get(PRO_COOKIE)?.value));
+  const free = isPro ? null : readFreeUsage(req.cookies.get(FREE_COOKIE)?.value);
+  if (free && free.n >= FREE_DAILY) {
+    return NextResponse.json({
+      error: 'free_limit',
+      message: `You've used your ${FREE_DAILY} free investigations today. Ozzie Pro is unlimited — and it keeps watching 24/7 so you never miss a change.`,
+      upgrade: '/ozzie', remaining: 0,
+    }, { status: 402 });
   }
   const body = await req.json().catch(() => ({}));
   const target = (body.target || '').toString().trim();
@@ -138,5 +145,22 @@ export async function POST(req: NextRequest) {
   const title = `Ozzie Dossier - ${target} - ${new Date().toISOString().slice(0, 10)}`;
   after(async () => { await mindSaveDossier(title, dossier); });
 
-  return NextResponse.json({ target, dossier, persisted_to_mind: Boolean(MIND_KEY), steps: trace.length, trace });
+  // Pro/service → full dossier. Free → summary only, findings + risk flags gated.
+  if (isPro) {
+    return NextResponse.json({ target, dossier, locked: false, persisted_to_mind: Boolean(MIND_KEY), steps: trace.length, trace });
+  }
+  const gated = gateDossier(dossier);
+  const res = NextResponse.json({
+    target,
+    dossier: gated.summary,
+    locked: true,
+    locked_findings: gated.lockedFindings,
+    locked_risk_flags: gated.lockedRiskFlags,
+    remaining: Math.max(FREE_DAILY - (free!.n + 1), 0),
+    upgrade: '/ozzie',
+    persisted_to_mind: Boolean(MIND_KEY),
+    steps: trace.length,
+  });
+  res.cookies.set(FREE_COOKIE, signFreeUsage({ d: free!.d, n: free!.n + 1 }), { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 2 * 86400 });
+  return res;
 }

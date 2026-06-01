@@ -9,7 +9,7 @@
 import { useState, useEffect } from 'react';
 
 interface TraceStep { step: number; tool?: string; input?: string; thought?: string; }
-interface OzzieResult { target: string; dossier: string; steps: number; persisted_to_mind: boolean; trace: TraceStep[]; }
+interface OzzieResult { target: string; dossier: string; steps: number; persisted_to_mind: boolean; trace?: TraceStep[]; locked?: boolean; locked_findings?: number; locked_risk_flags?: number; remaining?: number; }
 
 function renderMarkdown(md: string): string {
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -87,7 +87,7 @@ export default function OzziePage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target: t }),
       });
-      if (r.status === 402) { setPro(false); setError('Osiris Pro required to run investigations.'); return; }
+      if (r.status === 402) { const d = await r.json(); setError(d.message || 'Free limit reached. Upgrade for unlimited.'); return; }
       if (!r.ok) { setError(`Ozzie error (${r.status}). ${r.status === 503 ? 'Not configured.' : 'Try again.'}`); return; }
       setResult(await r.json());
     } catch { setError('Network error — try again.'); }
@@ -102,37 +102,25 @@ export default function OzziePage() {
           <div style={S.tag}>Autonomous OSINT analyst · powered by MIND</div>
         </header>
 
-        {pro === false ? (
-          <div style={S.paywall}>
-            <div style={S.pwTitle}>Osiris Pro</div>
-            <div style={S.pwPrice}>$49<span style={{ fontSize: 16, color: '#7a8' }}>/mo</span></div>
-            <ul style={S.pwList}>
-              <li>Unlimited Ozzie investigations (recursive OSINT → cited dossiers)</li>
-              <li>RECON toolkit (WHOIS · DNS · certs · CVE · sanctions · IP)</li>
-              <li>Persistent intelligence knowledge graph</li>
-              <li>Watchlists &amp; alerts (coming online)</li>
-            </ul>
-            <input style={S.input} placeholder="your@email.com" value={email} type="email" onChange={(e) => setEmail(e.target.value)} />
-            <button style={{ ...S.btn, width: '100%', marginTop: 10, opacity: upgrading ? 0.6 : 1 }} onClick={upgrade} disabled={upgrading}>
-              {upgrading ? 'Starting checkout…' : 'Upgrade to Pro →'}
-            </button>
-            <div style={{ fontSize: 11, color: '#567', marginTop: 8 }}>Secure checkout via Stripe · cancel anytime</div>
-          </div>
-        ) : (
-          <div style={S.bar}>
-            <input
-              style={S.input}
-              placeholder="Enter a target — domain, IP, org, or person (e.g. openai.com)"
-              value={target}
-              onChange={(e) => setTarget(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && investigate()}
-              disabled={loading || pro === null}
-            />
-            <button style={{ ...S.btn, opacity: loading || pro === null ? 0.6 : 1 }} onClick={investigate} disabled={loading || pro === null}>
-              {loading ? 'Investigating…' : 'Investigate'}
-            </button>
+        {pro === false && (
+          <div style={S.freeBanner}>
+            <span><b style={{ color: '#cfe' }}>Free tier</b> · 2 investigations/day · summary only.</span>
+            <button style={S.bannerUpgrade} onClick={upgrade} disabled={upgrading}>{upgrading ? '…' : 'Go Pro — full dossiers + 24/7 alerts →'}</button>
           </div>
         )}
+        <div style={S.bar}>
+          <input
+            style={S.input}
+            placeholder="Enter a target — domain, IP, org, or person (e.g. openai.com)"
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && investigate()}
+            disabled={loading || pro === null}
+          />
+          <button style={{ ...S.btn, opacity: loading || pro === null ? 0.6 : 1 }} onClick={investigate} disabled={loading || pro === null}>
+            {loading ? 'Investigating…' : 'Investigate'}
+          </button>
+        </div>
 
         {loading && <div style={S.note}>Ozzie is running the recursive enrichment loop — recall → OSINT tools → synthesise. This takes ~30–90s.</div>}
         {error && <div style={{ ...S.note, color: '#FF6B6B' }}>{error}</div>}
@@ -145,15 +133,38 @@ export default function OzziePage() {
               <span>{result.persisted_to_mind ? '✓ saved to knowledge graph' : ''}</span>
             </div>
             <div style={S.dossier} dangerouslySetInnerHTML={{ __html: renderMarkdown(result.dossier) }} />
-            <details style={S.trace}>
-              <summary style={S.summary}>Investigation trace ({result.trace.filter((t) => t.tool).length} tool calls)</summary>
-              {result.trace.filter((t) => t.tool).map((t) => (
-                <div key={t.step} style={S.traceRow}>
-                  <span style={S.toolTag}>{t.tool}</span>
-                  <span style={{ color: '#7a8' }}>{t.input}</span>
-                </div>
-              ))}
-            </details>
+
+            {result.locked && (
+              <div style={S.lock}>
+                <div style={S.lockTitle}>🔒 {(result.locked_findings || 0) + (result.locked_risk_flags || 0)} findings &amp; {result.locked_risk_flags || 0} risk flags are hidden</div>
+                <div style={S.lockSub}>Ozzie already found them — the full dossier (findings, risk flags, sources) is Pro-only. You have {result.remaining ?? 0} free summary left today.</div>
+                <button style={{ ...S.btn, marginTop: 12, opacity: upgrading ? 0.6 : 1 }} onClick={upgrade} disabled={upgrading}>{upgrading ? 'Starting checkout…' : 'Unlock the full dossier — Pro $49/mo →'}</button>
+              </div>
+            )}
+
+            {result.trace && (
+              <details style={S.trace}>
+                <summary style={S.summary}>Investigation trace ({result.trace.filter((t) => t.tool).length} tool calls)</summary>
+                {result.trace.filter((t) => t.tool).map((t) => (
+                  <div key={t.step} style={S.traceRow}>
+                    <span style={S.toolTag}>{t.tool}</span>
+                    <span style={{ color: '#7a8' }}>{t.input}</span>
+                  </div>
+                ))}
+              </details>
+            )}
+          </div>
+        )}
+
+        {pro === false && (
+          <div style={S.lockTeaser}>
+            <div style={S.watchHead}>🔔 Monitors &amp; Watchlists <span style={{ color: '#567', fontWeight: 400 }}>· Pro</span></div>
+            <p style={{ color: '#8aa', fontSize: 13.5, lineHeight: 1.6, margin: '0 0 12px' }}>
+              The world doesn't stop when you close the tab. Pro lets Ozzie <b style={{ color: '#cfe' }}>watch 24/7</b> — say
+              "alert me on active fires in the USA" or "earthquakes over M6" and Ozzie emails you the moment it happens.
+              On Free, you're flying blind between checks.
+            </p>
+            <button style={{ ...S.btn, opacity: upgrading ? 0.6 : 1 }} onClick={upgrade} disabled={upgrading}>{upgrading ? '…' : 'Turn on 24/7 monitoring — Pro $49/mo →'}</button>
           </div>
         )}
 
@@ -231,4 +242,10 @@ const S: Record<string, React.CSSProperties> = {
   watchRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderTop: '1px solid #0e1f2b', fontSize: 14 },
   miniBtn: { background: 'none', border: '1px solid #1d3b4d', color: '#9bd', borderRadius: 6, padding: '3px 10px', marginLeft: 6, cursor: 'pointer', fontSize: 12 },
   monType: { background: '#0d2433', color: '#00E5FF', borderRadius: 5, padding: '1px 7px', fontFamily: 'monospace', fontSize: 11, marginRight: 6 },
+  freeBanner: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: '#0a1825', border: '1px solid #16303f', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: '#8aa' },
+  bannerUpgrade: { background: 'linear-gradient(135deg,#00E5FF,#0091b3)', color: '#02121a', border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 700, fontSize: 13, cursor: 'pointer' },
+  lock: { marginTop: 16, background: 'linear-gradient(135deg,#0c1d2a,#10131c)', border: '1px solid #1d5566', borderRadius: 12, padding: '20px 22px', textAlign: 'center' },
+  lockTitle: { fontSize: 17, fontWeight: 800, color: '#eaf6ff' },
+  lockSub: { fontSize: 13.5, color: '#9bb', marginTop: 8, lineHeight: 1.6 },
+  lockTeaser: { marginTop: 24, background: '#070f17', border: '1px dashed #1d5566', borderRadius: 12, padding: '20px 22px' },
 };

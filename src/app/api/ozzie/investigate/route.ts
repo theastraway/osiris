@@ -1,20 +1,21 @@
 /**
  * ═══════════════════════════════════════════════════════════════
  *  OZZIE — Autonomous OSINT Investigator (recursive enrichment loop)
- *  POST /api/ozzie/investigate   { target: string, depth?: number }
+ *  POST /api/ozzie/investigate   { target: string }
  *
- *  Ozzie reasons with owl-alpha (OpenRouter, free) in a ReAct loop:
- *  recall MIND → pick the highest-value OSINT tool → observe →
- *  repeat until confident or budget hit → synthesise a cited dossier
- *  → persist it (+ entities) to the @ozzie MIND knowledge graph.
- *
+ *  Two-phase, robust by design:
+ *   1. TOOL LOOP — owl-alpha emits compact JSON tool calls; Ozzie
+ *      recalls MIND, then drives OSINT tools until confident/budget.
+ *   2. SYNTHESIS — a dedicated call turns the observations into a
+ *      plain-markdown cited dossier (no JSON parsing of prose).
+ *  Dossier + entities persist to the @ozzie MIND graph (background).
  *  No fabricated facts: every claim traces to a tool observation.
  * ═══════════════════════════════════════════════════════════════
  */
 import { NextRequest, NextResponse, after } from 'next/server';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120;
+export const maxDuration = 150;
 
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 const OZZIE_MODEL = process.env.OZZIE_MODEL || 'openrouter/owl-alpha';
@@ -24,109 +25,80 @@ const MIND_KEY = process.env.OSIRIS_MIND_API_KEY || '';
 const SELF_BASE = process.env.OSIRIS_SELF_BASE || 'http://localhost:3000';
 const MAX_STEPS = 8;
 
-/* ── OSINT tool registry: name → builds a same-origin GET against our own API ── */
 const TOOLS: Record<string, { param: string; path: string; desc: string }> = {
   whois:     { param: 'domain', path: '/api/osint/whois',     desc: 'Domain registration (registrar, dates, nameservers). Input: a domain.' },
   dns:       { param: 'domain', path: '/api/osint/dns',       desc: 'DNS records (A/AAAA/MX/NS/TXT). Input: a domain.' },
   certs:     { param: 'domain', path: '/api/osint/certs',     desc: 'TLS certificate history via crt.sh. Input: a domain.' },
   ip:        { param: 'ip',     path: '/api/osint/ip',        desc: 'IP geolocation + ASN + hosting org. Input: an IPv4/IPv6.' },
-  cve:       { param: 'cve',    path: '/api/osint/cve',       desc: 'Vulnerability detail from NVD. Input: a CVE id (CVE-YYYY-NNNNN).' },
-  sanctions: { param: 'query',  path: '/api/osint/sanctions', desc: 'OFAC / OpenSanctions screening. Input: a person/org/entity name.' },
+  cve:       { param: 'cve',    path: '/api/osint/cve',       desc: 'Vulnerability detail from NVD. Input: a CVE id.' },
+  sanctions: { param: 'query',  path: '/api/osint/sanctions', desc: 'OFAC / OpenSanctions screening. Input: a person/org name.' },
 };
 
 async function callTool(tool: string, input: string): Promise<unknown> {
   const t = TOOLS[tool];
   if (!t) return { error: `unknown tool: ${tool}` };
-  const url = `${SELF_BASE}${t.path}?${t.param}=${encodeURIComponent(input)}`;
   try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(20000) });
-    const body = await r.json().catch(() => ({ error: 'non-JSON response' }));
-    return { status: r.status, data: body };
-  } catch (e) {
-    return { error: `tool ${tool} failed: ${(e as Error).message}` };
-  }
+    const r = await fetch(`${SELF_BASE}${t.path}?${t.param}=${encodeURIComponent(input)}`, { signal: AbortSignal.timeout(20000) });
+    return { status: r.status, data: await r.json().catch(() => ({ error: 'non-JSON' })) };
+  } catch (e) { return { error: `tool ${tool} failed: ${(e as Error).message}` }; }
 }
 
 async function mindQuery(query: string): Promise<string> {
   if (!MIND_KEY) return 'MIND not configured';
   try {
     const r = await fetch(`${MIND_BASE}/developer/v1/query`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': MIND_KEY },
-      body: JSON.stringify({ query }),
-      signal: AbortSignal.timeout(30000),
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': MIND_KEY },
+      body: JSON.stringify({ query }), signal: AbortSignal.timeout(30000),
     });
-    const j = await r.json().catch(() => ({}));
-    return (j as { answer?: string }).answer || 'no prior knowledge';
+    return ((await r.json().catch(() => ({}))) as { answer?: string }).answer || 'no prior knowledge';
   } catch { return 'MIND query failed'; }
 }
 
-async function mindSaveDossier(title: string, content: string): Promise<string | null> {
-  if (!MIND_KEY) return null;
+async function mindSaveDossier(title: string, content: string): Promise<void> {
+  if (!MIND_KEY) return;
   try {
-    const r = await fetch(`${MIND_BASE}/developer/v1/documents`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': MIND_KEY },
+    await fetch(`${MIND_BASE}/developer/v1/documents`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': MIND_KEY },
       body: JSON.stringify({ title, content, source: 'Ozzie investigation', tags: ['ozzie', 'dossier', 'osint'] }),
-      signal: AbortSignal.timeout(45000),
+      signal: AbortSignal.timeout(90000),
     });
-    const j = await r.json().catch(() => ({}));
-    return (j as { id?: string }).id || null;
-  } catch { return null; }
+  } catch { /* best-effort background persist */ }
 }
 
-/* ── owl-alpha chat with one cheap fallback (never gemini, never >$15/1M) ── */
-async function llm(messages: Array<{ role: string; content: string }>): Promise<string> {
+async function llm(messages: Array<{ role: string; content: string }>, maxTokens = 700): Promise<string> {
   const tryModel = async (model: string) => {
     const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://osiris.theastraway.com',
-        'X-Title': 'Osiris Ozzie',
-      },
-      body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 1200 }),
-      signal: AbortSignal.timeout(40000),
+      headers: { 'Authorization': `Bearer ${OPENROUTER_KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://osiris.theastraway.com', 'X-Title': 'Osiris Ozzie' },
+      body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: maxTokens }),
+      signal: AbortSignal.timeout(45000),
     });
     if (!r.ok) throw new Error(`${model} ${r.status}`);
-    const j = await r.json();
-    return j.choices?.[0]?.message?.content?.trim() || '';
+    return (await r.json()).choices?.[0]?.message?.content?.trim() || '';
   };
-  try { return await tryModel(OZZIE_MODEL); }
-  catch { return await tryModel(OZZIE_FALLBACK_MODEL); }
+  try { return await tryModel(OZZIE_MODEL); } catch { return await tryModel(OZZIE_FALLBACK_MODEL); }
 }
 
-const SYSTEM = `You are Ozzie, an autonomous OSINT analyst for the Osiris platform.
-Investigate the given target using ONLY the tools provided. NEVER fabricate facts — every claim must come from a tool observation; if a tool returns nothing, record "no data".
-
-Available tools:
-${Object.entries(TOOLS).map(([k, v]) => `- ${k}: ${v.desc}`).join('\n')}
-- mind_query: recall what the knowledge graph already knows. Input: a question.
-
-Respond with EXACTLY ONE JSON object per turn, no prose around it:
-{"thought":"brief reasoning","action":"tool","tool":"<name>","input":"<value>"}
-or, when you have enough to report:
-{"thought":"...","action":"final","dossier":"<markdown dossier: ## Summary, ## Findings (cite the tool+value for each), ## Risk flags, ## Sources>"}
-
-Start by recalling prior knowledge (mind_query), then fill the highest-value gaps. Be decisive; finish within ${MAX_STEPS} tool calls.`;
-
-function parseAction(raw: string): { action?: string; tool?: string; input?: string; dossier?: string; thought?: string } {
-  let s = raw.trim();
-  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence) s = fence[1].trim();
-  const start = s.indexOf('{'); const end = s.lastIndexOf('}');
-  if (start >= 0 && end > start) s = s.slice(start, end + 1);
-  // 1. straight parse
-  try { return JSON.parse(s); } catch { /* fall through */ }
-  // 2. models often emit literal newlines/tabs inside string values (invalid JSON) — escape and retry
-  try { return JSON.parse(s.replace(/[\n\r\t]/g, (m) => ({ '\n': '\\n', '\r': '\\r', '\t': '\\t' }[m] || m))); } catch { /* fall through */ }
-  // 3. salvage the dossier value directly
-  const m = s.match(/"dossier"\s*:\s*"([\s\S]*)"\s*}\s*$/);
-  if (m) return { action: 'final', dossier: m[1].replace(/\\n/g, '\n').replace(/\\"/g, '"') };
-  // 4. give up — treat the whole thing as the dossier
-  return { action: 'final', dossier: raw };
+/* Lenient extraction of a {tool,input} or done signal — never throws. */
+function parseStep(raw: string): { tool?: string; input?: string; done?: boolean } {
+  if (/"done"\s*:\s*true|\bDONE\b/i.test(raw)) return { done: true };
+  let s = raw; const f = s.match(/```(?:json)?\s*([\s\S]*?)```/); if (f) s = f[1];
+  try {
+    const st = s.indexOf('{'), en = s.indexOf('}', st);
+    if (st >= 0 && en > st) { const o = JSON.parse(s.slice(st, en + 1)); if (o.tool) return { tool: o.tool, input: String(o.input ?? '') }; if (o.done) return { done: true }; }
+  } catch { /* regex fallback */ }
+  const tm = s.match(/"tool"\s*:\s*"([a-z_]+)"/i); const im = s.match(/"input"\s*:\s*"([^"]*)"/);
+  if (tm) return { tool: tm[1], input: im ? im[1] : '' };
+  return { done: true };
 }
+
+const SYSTEM = `You are Ozzie, an autonomous OSINT analyst for the Osiris platform. Investigate the target using ONLY these tools — NEVER fabricate facts.
+
+Tools (respond with ONE compact JSON object, single line, no prose):
+- mind_query  → recall the knowledge graph. {"tool":"mind_query","input":"<question>"}
+${Object.entries(TOOLS).map(([k, v]) => `- ${k}  → ${v.desc} {"tool":"${k}","input":"<value>"}`).join('\n')}
+
+Start with mind_query, then fill the highest-value gaps. When you have enough, respond with {"done":true}. Finish within ${MAX_STEPS} calls.`;
 
 export async function POST(req: NextRequest) {
   if (!OPENROUTER_KEY) return NextResponse.json({ error: 'Ozzie not configured (OPENROUTER_API_KEY missing)' }, { status: 503 });
@@ -138,30 +110,25 @@ export async function POST(req: NextRequest) {
     { role: 'system', content: SYSTEM },
     { role: 'user', content: `Investigate this target: ${target}` },
   ];
-  const trace: Array<{ step: number; tool?: string; input?: string; thought?: string; observation?: unknown }> = [];
+  const trace: Array<{ step: number; tool: string; input: string; observation?: unknown }> = [];
 
-  let dossier = '';
+  // ── Phase 1: tool loop ──
   for (let step = 1; step <= MAX_STEPS; step++) {
-    const reply = await llm(transcript);
-    const act = parseAction(reply);
-    if (act.action === 'final' || !act.tool) { dossier = act.dossier || reply; trace.push({ step, thought: act.thought }); break; }
-
-    const observation = act.tool === 'mind_query'
-      ? await mindQuery(act.input || target)
-      : await callTool(act.tool, act.input || target);
-
-    trace.push({ step, tool: act.tool, input: act.input, thought: act.thought, observation });
+    const reply = await llm(transcript, 400);
+    const act = parseStep(reply);
+    if (act.done || !act.tool) break;
+    const observation = act.tool === 'mind_query' ? await mindQuery(act.input || target) : await callTool(act.tool, act.input || target);
+    trace.push({ step, tool: act.tool, input: act.input || target, observation });
     transcript.push({ role: 'assistant', content: reply });
-    transcript.push({ role: 'user', content: `Observation: ${JSON.stringify(observation).slice(0, 4000)}` });
-
-    if (step === MAX_STEPS) {
-      transcript.push({ role: 'user', content: 'Budget reached. Output your final dossier JSON now.' });
-      dossier = parseAction(await llm(transcript)).dossier || dossier;
-    }
+    transcript.push({ role: 'user', content: `Observation: ${JSON.stringify(observation).slice(0, 3500)}` });
   }
 
-  // Persist to the @ozzie knowledge graph in the background so the user gets the
-  // dossier immediately (LightRAG ingestion can take >30s).
+  // ── Phase 2: synthesis (plain markdown, no JSON) ──
+  const dossier = await llm([
+    ...transcript,
+    { role: 'user', content: `Write the final intelligence dossier on "${target}" as MARKDOWN ONLY (no JSON, no code fences). Use these sections: ## Summary, ## Findings (cite the tool + value behind each fact), ## Risk Flags, ## Sources. Base every claim strictly on the observations above; if something is unknown, say so.` },
+  ], 1400);
+
   const title = `Ozzie Dossier - ${target} - ${new Date().toISOString().slice(0, 10)}`;
   after(async () => { await mindSaveDossier(title, dossier); });
 

@@ -23,7 +23,7 @@ const OZZIE_FALLBACK_MODEL = process.env.OZZIE_FALLBACK_MODEL || 'anthropic/clau
 const MIND_BASE = process.env.OSIRIS_MIND_BASE_URL || 'https://mindapp.onrender.com';
 const MIND_KEY = process.env.OSIRIS_MIND_API_KEY || '';
 const SELF_BASE = process.env.OSIRIS_SELF_BASE || 'http://localhost:3000';
-const MAX_STEPS = 8;
+const MAX_STEPS = 5; // owl-alpha ~15-20s/call; keep total investigation under ~90s
 
 const TOOLS: Record<string, { param: string; path: string; desc: string }> = {
   whois:     { param: 'domain', path: '/api/osint/whois',     desc: 'Domain registration (registrar, dates, nameservers). Input: a domain.' },

@@ -2,7 +2,7 @@
 # Both subdomains serve the same app. DNS must be grey-cloud (DNS-only) on
 # Cloudflare for HTTP-01 to validate; flip to proxied + Origin cert in hardening.
 
-osiris.m-i-n-d.ai, ozzie.m-i-n-d.ai {
+osiris.theastraway.com, ozzie.theastraway.com {
 	encode zstd gzip
 	reverse_proxy osiris:3000
 

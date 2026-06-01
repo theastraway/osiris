@@ -19,6 +19,7 @@ services:
       dockerfile: Dockerfile
     image: osiris-local:latest
     container_name: osiris-app
+    user: "0:0"                              # write access to the /data volume (watchlist)
     env_file:
       - path: ./.env.osiris
         required: false

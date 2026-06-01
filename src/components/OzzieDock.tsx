@@ -19,15 +19,17 @@ export default function OzzieDock() {
   const [loading, setLoading] = useState(false);
   const [dossier, setDossier] = useState('');
   const [needPro, setNeedPro] = useState(false);
+  const [locked, setLocked] = useState(false);
 
   async function run() {
     const t = target.trim(); if (!t || loading) return;
-    setLoading(true); setDossier(''); setNeedPro(false);
+    setLoading(true); setDossier(''); setNeedPro(false); setLocked(false);
     try {
       const r = await fetch('/api/ozzie/investigate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: t }) });
       if (r.status === 402) { setNeedPro(true); return; }
       const d = await r.json();
       setDossier(d.dossier || 'No result.');
+      setLocked(Boolean(d.locked));
     } catch { setDossier('Network error — try again.'); } finally { setLoading(false); }
   }
 
@@ -53,6 +55,7 @@ export default function OzzieDock() {
             {loading && <div style={{ color: '#7fa', fontSize: 12 }}>Ozzie is running the recursive loop (recall → OSINT tools → synthesise). ~60–150s.</div>}
             {needPro && <div style={{ fontSize: 13, color: '#bcd' }}>Investigations are an <b style={{ color: '#00E5FF' }}>Osiris Pro</b> feature.<br /><a href="/ozzie" style={link}>Unlock Pro → $49/mo</a></div>}
             {dossier && <div style={{ fontSize: 12.5, lineHeight: 1.6, color: '#cfe' }} dangerouslySetInnerHTML={{ __html: md(dossier) }} />}
+            {locked && <div style={{ marginTop: 10, padding: '10px 12px', background: '#0c1d2a', border: '1px solid #1d5566', borderRadius: 8, fontSize: 12.5, color: '#9bb' }}>🔒 Findings, risk flags &amp; sources are Pro-only. <a href="/ozzie" style={link}>Unlock full dossier →</a></div>}
             {!loading && !dossier && !needPro && <div style={{ color: '#567', fontSize: 12 }}>Enter a target. Ozzie investigates it across live OSINT sources and returns a cited dossier — saved to its knowledge graph. <a href="/ozzie" style={link}>Full console →</a></div>}
           </div>
         </div>

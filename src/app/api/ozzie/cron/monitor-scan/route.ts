@@ -5,19 +5,18 @@
  */
 import { NextRequest, NextResponse, after } from 'next/server';
 import { listMonitors, saveMonitors, evaluate } from '@/lib/monitors';
-import { sendEmail } from '@/lib/notify';
+import { sendEmail, alertDestination } from '@/lib/notify';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
 const MIND_BASE = process.env.OSIRIS_MIND_BASE_URL || 'https://mindapp.onrender.com';
 const MIND_KEY = process.env.OSIRIS_MIND_API_KEY || '';
-const ALERT_EMAIL = process.env.OZZIE_BRIEF_EMAIL || 'anthony@theastraway.com';
-
 export async function POST(req: NextRequest) {
   if (!process.env.CRON_SECRET || req.headers.get('x-cron-secret') !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
+  const ALERT_EMAIL = await alertDestination();   // configurable destination (chat/settings)
   const monitors = await listMonitors();
   const now = Date.now();
   const fired: Array<{ label: string; message: string }> = [];
@@ -32,7 +31,7 @@ export async function POST(req: NextRequest) {
         fired.push({ label: m.label, message: res.message });
         const subject = `🛰️ Ozzie Alert — ${m.label}`;
         const html = `<div style="font-family:system-ui,sans-serif;max-width:620px"><h3>${subject}</h3><pre style="white-space:pre-wrap;font-family:inherit;line-height:1.6">${res.message.replace(/</g, '&lt;')}</pre><hr/><small>Osiris · osiris.theastraway.com/ozzie</small></div>`;
-        await sendEmail(ALERT_EMAIL, subject, html, res.message);
+        if (ALERT_EMAIL) await sendEmail(ALERT_EMAIL, subject, html, res.message);
         if (MIND_KEY) after(async () => {
           try {
             await fetch(`${MIND_BASE}/developer/v1/documents`, {

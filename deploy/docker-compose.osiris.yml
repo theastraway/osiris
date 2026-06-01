@@ -55,6 +55,37 @@ services:
     networks: [osiris_net]
     mem_limit: 128m
 
+  cron:
+    # Self-contained scheduler (inside this stack, not the host): fires Ozzie's
+    # daily brief (12:00 UTC ≈ 08:00 ET) and watchlist scan (13:00 UTC).
+    image: alpine:3
+    container_name: osiris-cron
+    env_file:
+      - path: ./.env.osiris
+        required: false
+    command:
+      - sh
+      - -c
+      - |
+        apk add --no-cache curl tzdata >/dev/null 2>&1 || true
+        echo "osiris-cron up"
+        last=""
+        while true; do
+          now=$$(date -u +%H:%M)
+          if [ "$$now" != "$$last" ]; then
+            case "$$now" in
+              12:00) curl -s -X POST http://osiris:3000/api/ozzie/cron/daily-brief   -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
+              13:00) curl -s -X POST http://osiris:3000/api/ozzie/cron/watchlist-scan -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
+            esac
+            last="$$now"
+          fi
+          sleep 30
+        done
+    depends_on: [osiris]
+    restart: unless-stopped
+    networks: [osiris_net]
+    mem_limit: 64m
+
   postgres:
     image: postgres:16-alpine
     container_name: osiris-postgres

@@ -1,4 +1,5 @@
 /* Ozzie Intelligence Console — app shell + views. Dark command-center register. */
+.oz-app, .oz-app *, .oz-app *::before, .oz-app *::after { box-sizing: border-box; }
 .oz-app {
   --bg0: #05080d; --bg1: #0a1420; --panel: #08131d; --panel2: #070f17;
   --line: #16303f; --line2: #122636; --cyan: #00E5FF; --red: #F43F3F;
@@ -123,4 +124,6 @@
   .oz-mtab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 9px 0; color: var(--mut); font-size: 10px; background: none; border: none; cursor: pointer; }
   .oz-mtab.active { color: var(--cyan); }
   .oz-inputrow { flex-direction: column; }
+  .oz-top .sub { display: none; }
+  .oz-live { display: none; }
 }

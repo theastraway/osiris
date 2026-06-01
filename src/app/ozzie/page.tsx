@@ -8,10 +8,11 @@
    ═══════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Bell, Bookmark, FileText, Info, Lock, Trash2, Radar, Globe } from 'lucide-react';
+import { Search, Bell, Bookmark, FileText, Info, Lock, Trash2, Radar, Globe, Sparkles, Send } from 'lucide-react';
 import './ozzie-app.css';
 
-type View = 'investigate' | 'monitors' | 'watchlist' | 'dossiers' | 'about';
+type View = 'chat' | 'investigate' | 'monitors' | 'watchlist' | 'dossiers' | 'about';
+interface ChatMsg { role: 'user' | 'assistant'; content: string; dossier?: string; actions?: string[] }
 interface TraceStep { step: number; tool?: string; input?: string }
 interface Result { target: string; dossier: string; steps?: number; trace?: TraceStep[]; locked?: boolean; locked_findings?: number; locked_risk_flags?: number; remaining?: number; persisted_to_mind?: boolean }
 interface Monitor { id: string; label: string; type: string }
@@ -32,9 +33,30 @@ function md(s: string): string {
 const fade = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -8 }, transition: { duration: 0.25 } };
 
 export default function OzzieConsole() {
-  const [view, setView] = useState<View>('investigate');
+  const [view, setView] = useState<View>('chat');
   const [pro, setPro] = useState<boolean | null>(null);
   const [upgrading, setUpgrading] = useState(false);
+
+  const [chat, setChat] = useState<ChatMsg[]>([{ role: 'assistant', content: "I'm Ozzie. Tell me what you want and I'll run it — \"investigate openai.com\", \"watch for active fires in the USA\", \"add tesla.com to my watchlist\", or \"send my alerts to me@email.com\"." }]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatBusy, setChatBusy] = useState(false);
+  const chatEnd = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: 'smooth' }); }, [chat, chatBusy]);
+
+  async function sendChat(text?: string) {
+    const msg = (text ?? chatInput).trim(); if (!msg || chatBusy) return;
+    const next: ChatMsg[] = [...chat, { role: 'user', content: msg }];
+    setChat(next); setChatInput(''); setChatBusy(true);
+    try {
+      const r = await fetch('/api/ozzie/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: next.map(({ role, content }) => ({ role, content })) }) });
+      if (r.status === 402) { setChat([...next, { role: 'assistant', content: 'Ozzie Chat is a Pro feature — it can operate investigations, monitors, and your watchlist for you. Upgrade to unlock it.' }]); return; }
+      const d = await r.json();
+      setChat([...next, { role: 'assistant', content: d.reply || 'Done.', dossier: d.dossier, actions: d.actions }]);
+      if (d.actions?.includes('add_monitor')) fetch('/api/ozzie/monitors').then((x) => x.json()).then((m) => setMonitors(m.monitors || [])).catch(() => {});
+      if (d.actions?.includes('add_watchlist') || d.actions?.includes('remove_watchlist')) fetch('/api/ozzie/watchlist').then((x) => x.json()).then((w) => setWatchlist(w.watchlist || [])).catch(() => {});
+    } catch { setChat([...next, { role: 'assistant', content: 'Network hiccup — try again.' }]); }
+    finally { setChatBusy(false); }
+  }
 
   const [target, setTarget] = useState('');
   const [loading, setLoading] = useState(false);
@@ -95,6 +117,7 @@ export default function OzzieConsole() {
   const removeWatch = async (t: string) => { const r = await fetch('/api/ozzie/watchlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', target: t }) }); const d = await r.json(); if (d.watchlist) setWatchlist(d.watchlist); };
 
   const NAV: { id: View; label: string; icon: React.ReactNode; pro?: boolean }[] = [
+    { id: 'chat', label: 'Ozzie', icon: <Sparkles size={17} /> },
     { id: 'investigate', label: 'Investigate', icon: <Search size={17} /> },
     { id: 'monitors', label: 'Monitors', icon: <Bell size={17} />, pro: true },
     { id: 'watchlist', label: 'Watchlist', icon: <Bookmark size={17} />, pro: true },
@@ -102,6 +125,7 @@ export default function OzzieConsole() {
     { id: 'about', label: 'About Ozzie', icon: <Info size={17} /> },
   ];
   const titles: Record<View, [string, string]> = {
+    chat: ['Ozzie', 'Chat with Ozzie — it operates everything for you'],
     investigate: ['Investigate', 'Point Ozzie at a target — get a cited intelligence dossier'],
     monitors: ['Monitors', 'Ozzie watches live feeds 24/7 and alerts you'],
     watchlist: ['Watchlist', 'Entities Ozzie re-investigates and briefs you on daily'],
@@ -145,6 +169,38 @@ export default function OzzieConsole() {
         </header>
 
         <AnimatePresence mode="wait">
+          {/* CHAT — Ozzie operates itself */}
+          {view === 'chat' && (
+            <motion.div key="chat" className="oz-work solo" {...fade}>
+              {pro ? (
+                <div className="oz-chat">
+                  <div className="oz-chatlog">
+                    {chat.map((m, i) => (
+                      <div key={i} className={`oz-msg ${m.role}`}>
+                        {m.role === 'assistant' && <img className="oz-msg-av" src="/ozzie-logo.jpg" alt="" />}
+                        <div className="oz-bubble">
+                          <div dangerouslySetInnerHTML={{ __html: md(m.content) }} />
+                          {m.actions && m.actions.length > 0 && <div className="oz-actions">{m.actions.map((a, j) => <span key={j} className="oz-tag oz-mono">{a}</span>)}</div>}
+                          {m.dossier && <div className="oz-dossier" style={{ marginTop: 12 }} dangerouslySetInnerHTML={{ __html: md(m.dossier) }} />}
+                        </div>
+                      </div>
+                    ))}
+                    {chatBusy && <div className="oz-msg assistant"><img className="oz-msg-av" src="/ozzie-logo.jpg" alt="" /><div className="oz-bubble"><span className="oz-typing"><i /><i /><i /></span> <span className="oz-note">Ozzie is working… (investigations take ~60–150s)</span></div></div>}
+                    <div ref={chatEnd} />
+                  </div>
+                  <div className="oz-chips" style={{ padding: '0 4px 10px' }}>
+                    {['investigate openai.com', 'watch for active fires in the USA', 'add tesla.com to my watchlist', 'send my alerts to me@email.com'].map((q) => <button key={q} className="oz-chip" onClick={() => sendChat(q)} disabled={chatBusy}>{q}</button>)}
+                  </div>
+                  <div className="oz-chatbar">
+                    <input className="oz-input" placeholder="Ask Ozzie to do something…" value={chatInput} disabled={chatBusy}
+                      onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendChat()} />
+                    <button className="oz-btn" onClick={() => sendChat()} disabled={chatBusy}><Send size={16} /></button>
+                  </div>
+                </div>
+              ) : <ProLockView title="Ozzie Chat is Pro" body="Talk to Ozzie in plain English and it runs everything for you — investigations, monitors, watchlists, and alert settings. Your own analyst on call, 24/7." />}
+            </motion.div>
+          )}
+
           {/* INVESTIGATE */}
           {view === 'investigate' && (
             <motion.div key="inv" className={`oz-work${pro ? '' : ''}`} {...fade}>

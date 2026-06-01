@@ -84,7 +84,7 @@ async function llm(messages: Array<{ role: string; content: string }>): Promise<
         'Authorization': `Bearer ${OPENROUTER_KEY}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': 'https://osiris.theastraway.com',
-        'X-Title': 'Osiris — Ozzie',
+        'X-Title': 'Osiris Ozzie',
       },
       body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 1200 }),
       signal: AbortSignal.timeout(40000),

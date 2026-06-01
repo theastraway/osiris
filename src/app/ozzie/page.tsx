@@ -1,251 +1,334 @@
 'use client';
 
 /* ═══════════════════════════════════════════════════════════════
-   OZZIE — Investigation Console
-   Standalone surface (osiris.theastraway.com/ozzie). Submit a target,
-   Ozzie runs the recursive OSINT enrichment loop and returns a cited
-   dossier + the tool trace. Persists to the @ozzie knowledge graph.
+   OZZIE — Intelligence Console
+   A dark command-center app for the Osiris OSINT analyst: investigate,
+   monitor live feeds, manage watchlists, review dossiers. Free tier tastes
+   it (summary-only); Pro unlocks full dossiers + 24/7 monitoring.
    ═══════════════════════════════════════════════════════════════ */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Search, Bell, Bookmark, FileText, Info, Lock, Trash2, Radar, Globe } from 'lucide-react';
+import './ozzie-app.css';
 
-interface TraceStep { step: number; tool?: string; input?: string; thought?: string; }
-interface OzzieResult { target: string; dossier: string; steps: number; persisted_to_mind: boolean; trace?: TraceStep[]; locked?: boolean; locked_findings?: number; locked_risk_flags?: number; remaining?: number; }
+type View = 'investigate' | 'monitors' | 'watchlist' | 'dossiers' | 'about';
+interface TraceStep { step: number; tool?: string; input?: string }
+interface Result { target: string; dossier: string; steps?: number; trace?: TraceStep[]; locked?: boolean; locked_findings?: number; locked_risk_flags?: number; remaining?: number; persisted_to_mind?: boolean }
+interface Monitor { id: string; label: string; type: string }
 
-function renderMarkdown(md: string): string {
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return esc(md)
-    .replace(/^### (.*)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.*)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.*)$/gm, '<h2>$1</h2>')
+const EXAMPLES = ['openai.com', '1.1.1.1', 'tesla.com', 'anthropic.com'];
+const PRESETS = ['active fires in the USA', 'earthquakes over magnitude 6', 'new sanctions on a shipping company'];
+
+function md(s: string): string {
+  const e = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return e(s)
+    .replace(/^###?\s*(.*)$/gm, '<h2>$1</h2>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/^\s*[-*] (.*)$/gm, '<li>$1</li>')
+    .replace(/^\s*[-*•]\s*(.*)$/gm, '<li>$1</li>')
     .replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>')
-    .replace(/\n{2,}/g, '<br/><br/>')
-    .replace(/\n/g, '<br/>');
+    .replace(/\n{2,}/g, '<br/><br/>').replace(/\n/g, '<br/>');
 }
 
-export default function OzziePage() {
+const fade = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -8 }, transition: { duration: 0.25 } };
+
+export default function OzzieConsole() {
+  const [view, setView] = useState<View>('investigate');
+  const [pro, setPro] = useState<boolean | null>(null);
+  const [upgrading, setUpgrading] = useState(false);
+
   const [target, setTarget] = useState('');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<OzzieResult | null>(null);
+  const [phase, setPhase] = useState(0);
+  const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState('');
-  const [pro, setPro] = useState<boolean | null>(null);
-  const [email, setEmail] = useState('');
-  const [upgrading, setUpgrading] = useState(false);
-  const [watchlist, setWatchlist] = useState<string[]>([]);
-  const [watchInput, setWatchInput] = useState('');
-  const [monitors, setMonitors] = useState<Array<{ id: string; label: string; type: string }>>([]);
+  const [history, setHistory] = useState<Result[]>([]);
+  const phaseTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [monInput, setMonInput] = useState('');
   const [monBusy, setMonBusy] = useState(false);
-  const [monErr, setMonErr] = useState('');
+  const [watchlist, setWatchlist] = useState<string[]>([]);
+  const [watchInput, setWatchInput] = useState('');
 
   useEffect(() => {
     fetch('/api/billing/comp?status=1').then((r) => r.json()).then((d) => {
       setPro(Boolean(d.pro));
       if (d.pro) {
-        fetch('/api/ozzie/watchlist').then((r) => r.json()).then((w) => setWatchlist(w.watchlist || [])).catch(() => {});
         fetch('/api/ozzie/monitors').then((r) => r.json()).then((m) => setMonitors(m.monitors || [])).catch(() => {});
+        fetch('/api/ozzie/watchlist').then((r) => r.json()).then((w) => setWatchlist(w.watchlist || [])).catch(() => {});
       }
     }).catch(() => setPro(false));
   }, []);
 
+  async function upgrade() {
+    if (upgrading) return; setUpgrading(true);
+    try {
+      const r = await fetch('/api/billing/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const d = await r.json(); if (d.url) window.location.href = d.url;
+    } finally { setUpgrading(false); }
+  }
+
+  async function investigate(t0?: string) {
+    const t = (t0 ?? target).trim(); if (!t || loading) return;
+    setTarget(t); setLoading(true); setError(''); setResult(null); setPhase(0);
+    phaseTimer.current = setInterval(() => setPhase((p) => (p < 2 ? p + 1 : p)), 22000);
+    try {
+      const r = await fetch('/api/ozzie/investigate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: t }) });
+      if (r.status === 402) { const d = await r.json(); setError(d.message || 'Daily free limit reached — go Pro for unlimited.'); return; }
+      if (!r.ok) { setError(r.status === 503 ? 'Ozzie is not configured.' : `Error ${r.status} — try again.`); return; }
+      const d: Result = await r.json();
+      setResult(d); setHistory((h) => [{ ...d }, ...h].slice(0, 12));
+    } catch { setError('Network error — try again.'); }
+    finally { setLoading(false); if (phaseTimer.current) clearInterval(phaseTimer.current); }
+  }
+
   async function addMonitor() {
-    const t = monInput.trim(); if (!t || monBusy) return;
-    setMonBusy(true); setMonErr('');
+    const t = monInput.trim(); if (!t || monBusy) return; setMonBusy(true); setError('');
     try {
       const r = await fetch('/api/ozzie/monitors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add_nl', text: t }) });
-      const d = await r.json();
-      if (!r.ok) { setMonErr(d.error || 'Could not add monitor.'); return; }
+      const d = await r.json(); if (!r.ok) { setError(d.error || 'Could not add monitor.'); return; }
       setMonitors(d.monitors || []); setMonInput('');
-    } catch { setMonErr('Network error.'); } finally { setMonBusy(false); }
+    } finally { setMonBusy(false); }
   }
-  async function removeMonitor(mid: string) {
-    const r = await fetch('/api/ozzie/monitors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', id: mid }) });
-    const d = await r.json(); if (d.monitors) setMonitors(d.monitors);
-  }
+  const removeMonitor = async (id: string) => { const r = await fetch('/api/ozzie/monitors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', id }) }); const d = await r.json(); if (d.monitors) setMonitors(d.monitors); };
+  async function addWatch(t0?: string) { const t = (t0 ?? watchInput).trim().toLowerCase(); if (!t) return; const r = await fetch('/api/ozzie/watchlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add', target: t }) }); const d = await r.json(); if (d.watchlist) setWatchlist(d.watchlist); setWatchInput(''); }
+  const removeWatch = async (t: string) => { const r = await fetch('/api/ozzie/watchlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', target: t }) }); const d = await r.json(); if (d.watchlist) setWatchlist(d.watchlist); };
 
-  async function watch(action: 'add' | 'remove', t: string) {
-    const r = await fetch('/api/ozzie/watchlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, target: t }) });
-    const d = await r.json(); if (d.watchlist) setWatchlist(d.watchlist); setWatchInput('');
-  }
+  const NAV: { id: View; label: string; icon: React.ReactNode; pro?: boolean }[] = [
+    { id: 'investigate', label: 'Investigate', icon: <Search size={17} /> },
+    { id: 'monitors', label: 'Monitors', icon: <Bell size={17} />, pro: true },
+    { id: 'watchlist', label: 'Watchlist', icon: <Bookmark size={17} />, pro: true },
+    { id: 'dossiers', label: 'Dossiers', icon: <FileText size={17} /> },
+    { id: 'about', label: 'About Ozzie', icon: <Info size={17} /> },
+  ];
+  const titles: Record<View, [string, string]> = {
+    investigate: ['Investigate', 'Point Ozzie at a target — get a cited intelligence dossier'],
+    monitors: ['Monitors', 'Ozzie watches live feeds 24/7 and alerts you'],
+    watchlist: ['Watchlist', 'Entities Ozzie re-investigates and briefs you on daily'],
+    dossiers: ['Dossiers', 'Your recent investigations'],
+    about: ['About Ozzie', 'Autonomous open-source-intelligence analyst'],
+  };
 
-  async function upgrade() {
-    if (upgrading) return; setUpgrading(true); setError('');
-    try {
-      const r = await fetch('/api/billing/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
-      const d = await r.json();
-      if (d.url) window.location.href = d.url; else setError('Checkout unavailable — try again.');
-    } catch { setError('Checkout error — try again.'); } finally { setUpgrading(false); }
-  }
-
-  async function investigate() {
-    const t = target.trim();
-    if (!t || loading) return;
-    setLoading(true); setError(''); setResult(null);
-    try {
-      const r = await fetch('/api/ozzie/investigate', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target: t }),
-      });
-      if (r.status === 402) { const d = await r.json(); setError(d.message || 'Free limit reached. Upgrade for unlimited.'); return; }
-      if (!r.ok) { setError(`Ozzie error (${r.status}). ${r.status === 503 ? 'Not configured.' : 'Try again.'}`); return; }
-      setResult(await r.json());
-    } catch { setError('Network error — try again.'); }
-    finally { setLoading(false); }
-  }
+  const ProLockView = ({ title, body }: { title: string; body: string }) => (
+    <div className="oz-locked-view">
+      <Lock size={26} color="#00E5FF" />
+      <h2>{title}</h2>
+      <p>{body}</p>
+      <button className="oz-btn" onClick={upgrade} disabled={upgrading}>{upgrading ? 'Starting checkout…' : 'Unlock with Pro — $49/mo →'}</button>
+    </div>
+  );
 
   return (
-    <div style={S.page}>
-      <div style={S.wrap}>
-        <header style={S.header}>
-          <div style={S.logo}>🛰️ OZZIE</div>
-          <div style={S.tag}>Autonomous OSINT analyst · powered by MIND</div>
+    <div className="oz-app">
+      {/* ── Sidebar ── */}
+      <aside className="oz-side">
+        <a className="oz-brand" href="/"><img src="/app-logos/osiris.jpg" alt="" /><span><b>OZZIE</b><span>OSINT · MIND</span></span></a>
+        <nav className="oz-nav">
+          {NAV.map((n) => (
+            <button key={n.id} className={`oz-navitem${view === n.id ? ' active' : ''}${n.pro && !pro ? ' locked' : ''}`} onClick={() => setView(n.id)}>
+              {n.icon} {n.label} {n.pro && !pro && <Lock size={12} className="lk" />}
+            </button>
+          ))}
+        </nav>
+        <div className="oz-side-foot">
+          <div className="oz-tier"><span>Plan</span><span className={`oz-pill ${pro ? 'pro' : 'free'}`}>{pro === null ? '…' : pro ? 'PRO' : 'FREE'}</span></div>
+          {pro === false && <button className="oz-side-cta" onClick={upgrade} disabled={upgrading}>{upgrading ? '…' : 'Upgrade to Pro'}</button>}
+          <a className="oz-navitem" href="/" style={{ marginTop: 8 }}><Globe size={16} /> Back to globe</a>
+        </div>
+      </aside>
+
+      {/* ── Main ── */}
+      <div className="oz-main">
+        <header className="oz-top">
+          <div><h1>{titles[view][0]}</h1><div className="sub">{titles[view][1]}</div></div>
+          <div className="oz-live"><span className="oz-dot" /> live · powered by MIND</div>
         </header>
 
-        {pro === false && (
-          <div style={S.freeBanner}>
-            <span><b style={{ color: '#cfe' }}>Free tier</b> · 2 investigations/day · summary only.</span>
-            <button style={S.bannerUpgrade} onClick={upgrade} disabled={upgrading}>{upgrading ? '…' : 'Go Pro — full dossiers + 24/7 alerts →'}</button>
-          </div>
-        )}
-        <div style={S.bar}>
-          <input
-            style={S.input}
-            placeholder="Enter a target — domain, IP, org, or person (e.g. openai.com)"
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && investigate()}
-            disabled={loading || pro === null}
-          />
-          <button style={{ ...S.btn, opacity: loading || pro === null ? 0.6 : 1 }} onClick={investigate} disabled={loading || pro === null}>
-            {loading ? 'Investigating…' : 'Investigate'}
-          </button>
-        </div>
-
-        {loading && <div style={S.note}>Ozzie is running the recursive enrichment loop — recall → OSINT tools → synthesise. This takes ~30–90s.</div>}
-        {error && <div style={{ ...S.note, color: '#FF6B6B' }}>{error}</div>}
-
-        {result && (
-          <div style={S.results}>
-            <div style={S.meta}>
-              <span>Target: <b style={{ color: '#00E5FF' }}>{result.target}</b></span>
-              <span>{result.steps} tool steps</span>
-              <span>{result.persisted_to_mind ? '✓ saved to knowledge graph' : ''}</span>
-            </div>
-            <div style={S.dossier} dangerouslySetInnerHTML={{ __html: renderMarkdown(result.dossier) }} />
-
-            {result.locked && (
-              <div style={S.lock}>
-                <div style={S.lockTitle}>🔒 {(result.locked_findings || 0) + (result.locked_risk_flags || 0)} findings &amp; {result.locked_risk_flags || 0} risk flags are hidden</div>
-                <div style={S.lockSub}>Ozzie already found them — the full dossier (findings, risk flags, sources) is Pro-only. You have {result.remaining ?? 0} free summary left today.</div>
-                <button style={{ ...S.btn, marginTop: 12, opacity: upgrading ? 0.6 : 1 }} onClick={upgrade} disabled={upgrading}>{upgrading ? 'Starting checkout…' : 'Unlock the full dossier — Pro $49/mo →'}</button>
-              </div>
-            )}
-
-            {result.trace && (
-              <details style={S.trace}>
-                <summary style={S.summary}>Investigation trace ({result.trace.filter((t) => t.tool).length} tool calls)</summary>
-                {result.trace.filter((t) => t.tool).map((t) => (
-                  <div key={t.step} style={S.traceRow}>
-                    <span style={S.toolTag}>{t.tool}</span>
-                    <span style={{ color: '#7a8' }}>{t.input}</span>
+        <AnimatePresence mode="wait">
+          {/* INVESTIGATE */}
+          {view === 'investigate' && (
+            <motion.div key="inv" className={`oz-work${pro ? '' : ''}`} {...fade}>
+              <div className="oz-col">
+                <div className="oz-cmd">
+                  <h2>What should Ozzie investigate?</h2>
+                  <p>A domain, IP, company, person, or crypto wallet. Ozzie searches 20+ open sources, follows the leads, and writes a cited dossier.</p>
+                  <div className="oz-inputrow">
+                    <input className="oz-input" placeholder="e.g. openai.com" value={target} disabled={loading}
+                      onChange={(e) => setTarget(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && investigate()} />
+                    <button className="oz-btn" onClick={() => investigate()} disabled={loading || pro === null}>{loading ? 'Investigating…' : 'Investigate'}</button>
                   </div>
-                ))}
-              </details>
-            )}
-          </div>
-        )}
+                  <div className="oz-chips">{EXAMPLES.map((x) => <button key={x} className="oz-chip" onClick={() => investigate(x)} disabled={loading}>{x}</button>)}</div>
 
-        {pro === false && (
-          <div style={S.lockTeaser}>
-            <div style={S.watchHead}>🔔 Monitors &amp; Watchlists <span style={{ color: '#567', fontWeight: 400 }}>· Pro</span></div>
-            <p style={{ color: '#8aa', fontSize: 13.5, lineHeight: 1.6, margin: '0 0 12px' }}>
-              The world doesn't stop when you close the tab. Pro lets Ozzie <b style={{ color: '#cfe' }}>watch 24/7</b> — say
-              "alert me on active fires in the USA" or "earthquakes over M6" and Ozzie emails you the moment it happens.
-              On Free, you're flying blind between checks.
-            </p>
-            <button style={{ ...S.btn, opacity: upgrading ? 0.6 : 1 }} onClick={upgrade} disabled={upgrading}>{upgrading ? '…' : 'Turn on 24/7 monitoring — Pro $49/mo →'}</button>
-          </div>
-        )}
-
-        {pro && (
-          <div style={S.watch}>
-            <div style={S.watchHead}>📌 Watchlist <span style={{ color: '#567', fontWeight: 400 }}>· Ozzie rescans daily &amp; emails a digest</span></div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-              <input style={{ ...S.input, padding: '10px 12px', fontSize: 14 }} placeholder="add a target to monitor…" value={watchInput} onChange={(e) => setWatchInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && watchInput.trim() && watch('add', watchInput.trim().toLowerCase())} />
-              <button style={{ ...S.btn, padding: '10px 16px', fontSize: 14 }} onClick={() => watchInput.trim() && watch('add', watchInput.trim().toLowerCase())}>Add</button>
-            </div>
-            {watchlist.length === 0 ? <div style={{ color: '#567', fontSize: 13 }}>No targets yet.</div> :
-              watchlist.map((w) => (
-                <div key={w} style={S.watchRow}>
-                  <span style={{ color: '#cfe' }}>{w}</span>
-                  <span>
-                    <button style={S.miniBtn} onClick={() => { setTarget(w); setTimeout(investigate, 0); }}>investigate</button>
-                    <button style={{ ...S.miniBtn, color: '#f88' }} onClick={() => watch('remove', w)}>remove</button>
-                  </span>
+                  {loading && (
+                    <>
+                      <div className="oz-steps">
+                        {['RECALL', 'COLLECT', 'SYNTHESIZE'].map((s, i) => (
+                          <div key={s} className={`oz-step${phase >= i ? ' on' : ''}`}><div className="n oz-mono">0{i + 1}</div><div className="t">{s}</div></div>
+                        ))}
+                      </div>
+                      <div className="oz-note" style={{ marginTop: 12 }}>Ozzie is running the recursive enrichment loop — this takes ~60–150s.</div>
+                    </>
+                  )}
+                  {error && <div className="oz-err">{error}{!pro && <> · <a style={{ color: '#00E5FF', cursor: 'pointer' }} onClick={upgrade}>Go Pro →</a></>}</div>}
                 </div>
-              ))}
-          </div>
-        )}
 
-        {pro && (
-          <div style={S.watch}>
-            <div style={S.watchHead}>🔔 Monitors <span style={{ color: '#567', fontWeight: 400 }}>· Ozzie watches live feeds &amp; emails you the moment they trip</span></div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-              <input style={{ ...S.input, padding: '10px 12px', fontSize: 14 }} placeholder="Tell Ozzie what to watch — e.g. active fires in the USA" value={monInput} disabled={monBusy}
-                onChange={(e) => setMonInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addMonitor()} />
-              <button style={{ ...S.btn, padding: '10px 16px', fontSize: 14, opacity: monBusy ? 0.6 : 1 }} onClick={addMonitor} disabled={monBusy}>{monBusy ? '…' : 'Watch'}</button>
-            </div>
-            {monErr && <div style={{ color: '#f88', fontSize: 12, marginBottom: 6 }}>{monErr}</div>}
-            {monitors.length === 0 ? <div style={{ color: '#567', fontSize: 13 }}>No monitors yet. Try “earthquakes over magnitude 6” or “active fires in the USA”.</div> :
-              monitors.map((m) => (
-                <div key={m.id} style={S.watchRow}>
-                  <span style={{ color: '#cfe' }}><span style={S.monType}>{m.type}</span> {m.label}</span>
-                  <button style={{ ...S.miniBtn, color: '#f88' }} onClick={() => removeMonitor(m.id)}>remove</button>
+                {result && (
+                  <motion.div {...fade}>
+                    <div className="oz-dossier">
+                      <div className="oz-meta">
+                        <span>Target: <b style={{ color: '#00E5FF' }} className="oz-mono">{result.target}</b></span>
+                        {result.steps ? <span>{result.steps} tool steps</span> : null}
+                        {result.persisted_to_mind && <span>✓ saved to knowledge graph</span>}
+                      </div>
+                      <div dangerouslySetInnerHTML={{ __html: md(result.dossier) }} />
+                      {result.locked && (
+                        <div className="oz-lock">
+                          <div className="t">🔒 {(result.locked_findings || 0) + (result.locked_risk_flags || 0)} findings &amp; {result.locked_risk_flags || 0} risk flags hidden</div>
+                          <div className="s">Ozzie already found them. The full dossier — findings, risk flags, sources — is Pro. {result.remaining ?? 0} free summaries left today.</div>
+                          <button className="oz-btn" style={{ marginTop: 12 }} onClick={upgrade} disabled={upgrading}>{upgrading ? '…' : 'Unlock the full dossier — Pro $49/mo →'}</button>
+                        </div>
+                      )}
+                      {result.trace && result.trace.length > 0 && (
+                        <div className="oz-trace">
+                          {result.trace.filter((t) => t.tool).map((t) => (
+                            <div key={t.step} className="oz-trow"><span className="oz-tag oz-mono">{t.tool}</span><span className="oz-mono" style={{ color: '#7a8' }}>{t.input}</span></div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </div>
+
+              {/* Rail */}
+              <div className="oz-rail">
+                <div className="oz-panel">
+                  <h3>How Ozzie works</h3>
+                  {[['1', 'Recall', 'Checks its knowledge graph for what it already knows'], ['2', 'Collect', 'Runs WHOIS, DNS, certs, IP, sanctions, CVE lookups'], ['3', 'Synthesize', 'Writes a cited dossier and remembers it']].map(([n, t, d]) => (
+                    <div className="oz-how" key={n}><div className="ix oz-mono">{n}</div><div className="bd"><b>{t}</b><span>{d}</span></div></div>
+                  ))}
                 </div>
-              ))}
-          </div>
-        )}
+                <div className="oz-panel">
+                  <h3>This session</h3>
+                  <div className="oz-stats">
+                    <div className="oz-stat"><div className="v">{history.length}</div><div className="k">investigations</div></div>
+                    <div className="oz-stat"><div className="v">{monitors.length}</div><div className="k">monitors</div></div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
 
-        <footer style={S.footer}>
-          Osiris · open-source intelligence · <a href="/" style={{ color: '#00E5FF' }}>← back to the globe</a>
-        </footer>
+          {/* MONITORS */}
+          {view === 'monitors' && (
+            <motion.div key="mon" className="oz-work solo" {...fade}>
+              {pro ? (
+                <div className="oz-col">
+                  <div className="oz-cmd">
+                    <h2>Tell Ozzie what to watch</h2>
+                    <p>Plain English. Ozzie checks the live feeds every ~20 minutes and emails you the moment it trips.</p>
+                    <div className="oz-inputrow">
+                      <input className="oz-input" placeholder="e.g. active fires in the USA" value={monInput} disabled={monBusy}
+                        onChange={(e) => setMonInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addMonitor()} />
+                      <button className="oz-btn" onClick={addMonitor} disabled={monBusy}>{monBusy ? '…' : 'Watch'}</button>
+                    </div>
+                    <div className="oz-presets">{PRESETS.map((p) => <button key={p} className="oz-chip" onClick={() => { setMonInput(p); }}>{p}</button>)}</div>
+                    {error && <div className="oz-err">{error}</div>}
+                  </div>
+                  <div style={{ marginTop: 16 }}>
+                    {monitors.length === 0 ? <div className="oz-note">No monitors yet. Add one above.</div> :
+                      monitors.map((m) => (
+                        <div className="oz-card" key={m.id} style={{ marginBottom: 10 }}>
+                          <div className="oz-row" style={{ borderTop: 'none', padding: 0 }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Radar size={16} color="#00E5FF" /> <b>{m.label}</b> <span className="oz-tag oz-mono">{m.type}</span></span>
+                            <button className="oz-mini danger" onClick={() => removeMonitor(m.id)}><Trash2 size={13} /></button>
+                          </div>
+                          <div className="oz-note" style={{ marginTop: 6, fontSize: 12 }}>Checked every ~20 min · alerts emailed + logged to the graph</div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ) : <ProLockView title="24/7 Monitoring is Pro" body={`The world doesn't stop when you close the tab. Pro lets Ozzie watch live feeds around the clock — "alert me on active fires in the USA," "earthquakes over M6" — and email you the instant it happens. On Free, you're flying blind between checks.`} />}
+            </motion.div>
+          )}
+
+          {/* WATCHLIST */}
+          {view === 'watchlist' && (
+            <motion.div key="wl" className="oz-work solo" {...fade}>
+              {pro ? (
+                <div className="oz-col">
+                  <div className="oz-cmd">
+                    <h2>Watchlist</h2>
+                    <p>Targets Ozzie re-investigates automatically and folds into your daily intelligence brief.</p>
+                    <div className="oz-inputrow">
+                      <input className="oz-input" placeholder="add a target to monitor…" value={watchInput}
+                        onChange={(e) => setWatchInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addWatch()} />
+                      <button className="oz-btn" onClick={() => addWatch()}>Add</button>
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 16 }}>
+                    {watchlist.length === 0 ? <div className="oz-note">No targets yet.</div> :
+                      watchlist.map((w) => (
+                        <div className="oz-row" key={w}>
+                          <span className="oz-mono" style={{ color: '#cfe' }}>{w}</span>
+                          <span>
+                            <button className="oz-mini" onClick={() => { setView('investigate'); investigate(w); }}>investigate</button>
+                            <button className="oz-mini danger" style={{ marginLeft: 6 }} onClick={() => removeWatch(w)}>remove</button>
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ) : <ProLockView title="Watchlists are Pro" body="Save the targets that matter and Ozzie keeps them current — re-investigating each one and surfacing changes in a daily brief, so you don't have to remember to look." />}
+            </motion.div>
+          )}
+
+          {/* DOSSIERS */}
+          {view === 'dossiers' && (
+            <motion.div key="dos" className="oz-work solo" {...fade}>
+              <div className="oz-col">
+                {history.length === 0 ? <div className="oz-locked-view"><FileText size={26} color="#00E5FF" /><h2>No dossiers yet</h2><p>Run an investigation and it'll appear here — and persist in Ozzie's knowledge graph.</p><button className="oz-btn" onClick={() => setView('investigate')}>Start investigating →</button></div> :
+                  history.map((h, i) => (
+                    <div className="oz-card" key={i} style={{ marginBottom: 12, cursor: 'pointer' }} onClick={() => { setResult(h); setView('investigate'); }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><b className="oz-mono" style={{ color: '#00E5FF' }}>{h.target}</b>{h.locked && <Lock size={13} color="#6f8a9b" />}</div>
+                      <div className="oz-note" style={{ marginTop: 6 }}>{(h.dossier || '').replace(/[#*]/g, '').slice(0, 150)}…</div>
+                    </div>
+                  ))}
+              </div>
+            </motion.div>
+          )}
+
+          {/* ABOUT */}
+          {view === 'about' && (
+            <motion.div key="abt" className="oz-work solo" {...fade}>
+              <div className="oz-col">
+                <div className="oz-about-hero">
+                  <img src="/app-logos/osiris.jpg" alt="" style={{ width: 60, height: 60, borderRadius: 14 }} />
+                  <h2>Ozzie investigates anything.</h2>
+                  <p>Give Ozzie a domain, IP, company, person, or wallet. It searches 20+ live open-source-intelligence feeds, reasons through the leads, and hands you a fully cited dossier — then remembers it, so it gets sharper over time.</p>
+                </div>
+                <div className="oz-feat">
+                  {[[<Search size={18} key="a" />, 'Investigate', 'Domains · IPs · orgs · people · wallets'], [<Radar size={18} key="b" />, 'Recursive AI', 'Follows leads and cites every fact'], [<Bell size={18} key="c" />, '24/7 Monitors', 'Watchlists + alerts to your inbox'], [<FileText size={18} key="d" />, 'Knowledge Graph', 'Every finding remembered, compounding']].map(([ic, t, d], i) => (
+                    <div className="oz-card" key={i}><div style={{ color: '#00E5FF', marginBottom: 8 }}>{ic}</div><b>{t}</b><div className="oz-note" style={{ marginTop: 4 }}>{d}</div></div>
+                  ))}
+                </div>
+                <div className="oz-cmd" style={{ textAlign: 'center' }}>
+                  <h2>{pro ? "You're on Pro — investigate away." : 'Osiris Pro — $49/mo'}</h2>
+                  <p>{pro ? 'Unlimited dossiers, watchlists, and 24/7 monitoring are all yours.' : 'Unlimited full dossiers, the compounding knowledge graph, and 24/7 monitoring with instant alerts.'}</p>
+                  {!pro && <button className="oz-btn" onClick={upgrade} disabled={upgrading}>{upgrading ? 'Starting checkout…' : 'Upgrade to Pro →'}</button>}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
+
+      {/* ── Mobile tab bar ── */}
+      <nav className="oz-mtabs">
+        {NAV.filter((n) => n.id !== 'about').map((n) => (
+          <button key={n.id} className={`oz-mtab${view === n.id ? ' active' : ''}`} onClick={() => setView(n.id)}>{n.icon}<span>{n.label}</span></button>
+        ))}
+      </nav>
     </div>
   );
 }
-
-const S: Record<string, React.CSSProperties> = {
-  page: { minHeight: '100vh', background: 'radial-gradient(1200px 600px at 50% -10%, #0a1420, #05080d 60%)', color: '#cfe', fontFamily: 'ui-sans-serif, system-ui, sans-serif', padding: '0' },
-  wrap: { maxWidth: 880, margin: '0 auto', padding: '48px 20px 80px' },
-  header: { textAlign: 'center', marginBottom: 32 },
-  logo: { fontSize: 34, fontWeight: 800, letterSpacing: 4, color: '#eaf6ff', textShadow: '0 0 20px rgba(0,229,255,0.4)' },
-  tag: { fontSize: 13, color: '#5f7a8a', letterSpacing: 1, marginTop: 6 },
-  bar: { display: 'flex', gap: 10, marginBottom: 14 },
-  input: { flex: 1, padding: '14px 16px', borderRadius: 10, border: '1px solid #1d3b4d', background: '#0a1622', color: '#eaf6ff', fontSize: 15, outline: 'none' },
-  btn: { padding: '14px 22px', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg,#00E5FF,#0091b3)', color: '#02121a', fontWeight: 700, fontSize: 15, cursor: 'pointer' },
-  note: { fontSize: 13, color: '#7fa', padding: '10px 2px' },
-  results: { marginTop: 18 },
-  meta: { display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13, color: '#8aa', borderBottom: '1px solid #16303f', paddingBottom: 10, marginBottom: 16 },
-  dossier: { background: '#08131d', border: '1px solid #16303f', borderRadius: 12, padding: '22px 26px', lineHeight: 1.7, fontSize: 14.5 },
-  trace: { marginTop: 16, background: '#070f17', border: '1px solid #122636', borderRadius: 10, padding: '10px 14px' },
-  summary: { cursor: 'pointer', color: '#9bd', fontSize: 13 },
-  traceRow: { display: 'flex', gap: 10, alignItems: 'center', padding: '4px 0', fontSize: 13 },
-  toolTag: { background: '#0d2433', color: '#00E5FF', borderRadius: 6, padding: '2px 8px', fontFamily: 'monospace', fontSize: 12 },
-  footer: { marginTop: 40, textAlign: 'center', fontSize: 12, color: '#456' },
-  paywall: { background: '#08131d', border: '1px solid #16303f', borderRadius: 14, padding: '28px 30px', maxWidth: 480, margin: '0 auto', textAlign: 'center' },
-  pwTitle: { fontSize: 13, letterSpacing: 2, color: '#00E5FF', fontWeight: 700, textTransform: 'uppercase' },
-  pwPrice: { fontSize: 46, fontWeight: 800, color: '#eaf6ff', margin: '4px 0 14px' },
-  pwList: { textAlign: 'left', color: '#bcd', fontSize: 14, lineHeight: 1.9, margin: '0 0 18px', paddingLeft: 20 },
-  watch: { marginTop: 24, background: '#070f17', border: '1px solid #122636', borderRadius: 12, padding: '18px 20px' },
-  watchHead: { fontSize: 14, fontWeight: 700, color: '#9bd', marginBottom: 12 },
-  watchRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderTop: '1px solid #0e1f2b', fontSize: 14 },
-  miniBtn: { background: 'none', border: '1px solid #1d3b4d', color: '#9bd', borderRadius: 6, padding: '3px 10px', marginLeft: 6, cursor: 'pointer', fontSize: 12 },
-  monType: { background: '#0d2433', color: '#00E5FF', borderRadius: 5, padding: '1px 7px', fontFamily: 'monospace', fontSize: 11, marginRight: 6 },
-  freeBanner: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: '#0a1825', border: '1px solid #16303f', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: '#8aa' },
-  bannerUpgrade: { background: 'linear-gradient(135deg,#00E5FF,#0091b3)', color: '#02121a', border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 700, fontSize: 13, cursor: 'pointer' },
-  lock: { marginTop: 16, background: 'linear-gradient(135deg,#0c1d2a,#10131c)', border: '1px solid #1d5566', borderRadius: 12, padding: '20px 22px', textAlign: 'center' },
-  lockTitle: { fontSize: 17, fontWeight: 800, color: '#eaf6ff' },
-  lockSub: { fontSize: 13.5, color: '#9bb', marginTop: 8, lineHeight: 1.6 },
-  lockTeaser: { marginTop: 24, background: '#070f17', border: '1px dashed #1d5566', borderRadius: 12, padding: '20px 22px' },
-};

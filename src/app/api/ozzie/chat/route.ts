@@ -72,11 +72,26 @@ ${TOOLS}
 After a tool runs you receive its result, then continue. When you're done, reply to the user in plain, friendly language (no JSON). Be brief. If the user just chats, answer directly. When you investigate, summarise the key findings and risk flags conversationally — don't dump raw JSON.`;
 
 function parseTool(s: string): { tool?: string; args?: Record<string, string> } {
-  let t = s.trim(); const f = t.match(/```(?:json)?\s*([\s\S]*?)```/); if (f) t = f[1].trim();
-  if (!t.startsWith('{')) return {};
-  try { const o = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)); if (o.tool) return { tool: o.tool, args: o.args || {} }; } catch { /* not a tool */ }
+  const t = s.trim();
+  // owl-alpha (longcat) native tool-call syntax
+  const lc = t.match(/<longcat_tool_call>\s*([\s\S]*?)<\/longcat_tool_call>/);
+  if (lc) {
+    const inner = lc[1].trim();
+    const name = (inner.split(/[\s<]/)[0] || '').trim();
+    const args: Record<string, string> = {};
+    const re = /<longcat_arg_key>\s*([\s\S]*?)\s*<\/longcat_arg_key>\s*<longcat_arg_value>\s*([\s\S]*?)\s*<\/longcat_arg_value>/g;
+    let m; while ((m = re.exec(inner))) args[m[1].trim()] = m[2].trim();
+    if (name) return { tool: name, args };
+  }
+  // generic JSON tool-call
+  let j = t; const f = j.match(/```(?:json)?\s*([\s\S]*?)```/); if (f) j = f[1].trim();
+  if (j.includes('{')) {
+    try { const o = JSON.parse(j.slice(j.indexOf('{'), j.lastIndexOf('}') + 1)); if (o.tool) return { tool: o.tool, args: o.args || {} }; } catch { /* not a tool */ }
+  }
   return {};
 }
+
+const cleanReply = (s: string) => s.replace(/<\/?longcat[^>]*>/g, '').replace(/\{"tool"[\s\S]*\}/g, '').trim() || 'Done.';
 
 export async function POST(req: NextRequest) {
   if (!OPENROUTER_KEY) return NextResponse.json({ error: 'Ozzie chat not configured' }, { status: 503 });
@@ -91,13 +106,13 @@ export async function POST(req: NextRequest) {
   for (let i = 0; i < 6; i++) {
     const out = await llm(convo);
     const t = parseTool(out);
-    if (!t.tool) return NextResponse.json({ reply: out, actions, dossier });
+    if (!t.tool) return NextResponse.json({ reply: cleanReply(out), actions, dossier });
     const { obs, dossier: dos } = await exec(t.tool, t.args || {});
     if (dos) dossier = dos;
     actions.push(t.tool);
     convo.push({ role: 'assistant', content: out });
     convo.push({ role: 'user', content: `[tool ${t.tool} result]\n${obs}` });
   }
-  const final = await llm([...convo, { role: 'user', content: 'Summarise what you did for me in plain language.' }]);
-  return NextResponse.json({ reply: final, actions, dossier });
+  const final = await llm([...convo, { role: 'user', content: 'Summarise what you did for me in plain language. No tool calls.' }]);
+  return NextResponse.json({ reply: cleanReply(final), actions, dossier });
 }

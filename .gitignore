@@ -40,3 +40,6 @@ scanner/
 
 # Security - prevent accidental backup commits
 scanner_backend_backup.js
+
+# Osiris deploy secrets
+deploy/.env.osiris

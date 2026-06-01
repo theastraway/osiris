@@ -1,0 +1,23 @@
+# Osiris reverse proxy — auto-HTTPS via Let's Encrypt (HTTP-01).
+# Both subdomains serve the same app. DNS must be grey-cloud (DNS-only) on
+# Cloudflare for HTTP-01 to validate; flip to proxied + Origin cert in hardening.
+
+osiris.theastraway.com, ozzie.theastraway.com {
+	encode zstd gzip
+	reverse_proxy osiris:3000
+
+	header {
+		# baseline security headers; CSP tuned once the app's asset origins are confirmed
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}

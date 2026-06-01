@@ -34,13 +34,35 @@ export default function OzziePage() {
   const [upgrading, setUpgrading] = useState(false);
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [watchInput, setWatchInput] = useState('');
+  const [monitors, setMonitors] = useState<Array<{ id: string; label: string; type: string }>>([]);
+  const [monInput, setMonInput] = useState('');
+  const [monBusy, setMonBusy] = useState(false);
+  const [monErr, setMonErr] = useState('');
 
   useEffect(() => {
     fetch('/api/billing/comp?status=1').then((r) => r.json()).then((d) => {
       setPro(Boolean(d.pro));
-      if (d.pro) fetch('/api/ozzie/watchlist').then((r) => r.json()).then((w) => setWatchlist(w.watchlist || [])).catch(() => {});
+      if (d.pro) {
+        fetch('/api/ozzie/watchlist').then((r) => r.json()).then((w) => setWatchlist(w.watchlist || [])).catch(() => {});
+        fetch('/api/ozzie/monitors').then((r) => r.json()).then((m) => setMonitors(m.monitors || [])).catch(() => {});
+      }
     }).catch(() => setPro(false));
   }, []);
+
+  async function addMonitor() {
+    const t = monInput.trim(); if (!t || monBusy) return;
+    setMonBusy(true); setMonErr('');
+    try {
+      const r = await fetch('/api/ozzie/monitors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add_nl', text: t }) });
+      const d = await r.json();
+      if (!r.ok) { setMonErr(d.error || 'Could not add monitor.'); return; }
+      setMonitors(d.monitors || []); setMonInput('');
+    } catch { setMonErr('Network error.'); } finally { setMonBusy(false); }
+  }
+  async function removeMonitor(mid: string) {
+    const r = await fetch('/api/ozzie/monitors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', id: mid }) });
+    const d = await r.json(); if (d.monitors) setMonitors(d.monitors);
+  }
 
   async function watch(action: 'add' | 'remove', t: string) {
     const r = await fetch('/api/ozzie/watchlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, target: t }) });
@@ -155,6 +177,25 @@ export default function OzziePage() {
           </div>
         )}
 
+        {pro && (
+          <div style={S.watch}>
+            <div style={S.watchHead}>🔔 Monitors <span style={{ color: '#567', fontWeight: 400 }}>· Ozzie watches live feeds &amp; emails you the moment they trip</span></div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+              <input style={{ ...S.input, padding: '10px 12px', fontSize: 14 }} placeholder="Tell Ozzie what to watch — e.g. active fires in the USA" value={monInput} disabled={monBusy}
+                onChange={(e) => setMonInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addMonitor()} />
+              <button style={{ ...S.btn, padding: '10px 16px', fontSize: 14, opacity: monBusy ? 0.6 : 1 }} onClick={addMonitor} disabled={monBusy}>{monBusy ? '…' : 'Watch'}</button>
+            </div>
+            {monErr && <div style={{ color: '#f88', fontSize: 12, marginBottom: 6 }}>{monErr}</div>}
+            {monitors.length === 0 ? <div style={{ color: '#567', fontSize: 13 }}>No monitors yet. Try “earthquakes over magnitude 6” or “active fires in the USA”.</div> :
+              monitors.map((m) => (
+                <div key={m.id} style={S.watchRow}>
+                  <span style={{ color: '#cfe' }}><span style={S.monType}>{m.type}</span> {m.label}</span>
+                  <button style={{ ...S.miniBtn, color: '#f88' }} onClick={() => removeMonitor(m.id)}>remove</button>
+                </div>
+              ))}
+          </div>
+        )}
+
         <footer style={S.footer}>
           Osiris · open-source intelligence · <a href="/" style={{ color: '#00E5FF' }}>← back to the globe</a>
         </footer>
@@ -189,4 +230,5 @@ const S: Record<string, React.CSSProperties> = {
   watchHead: { fontSize: 14, fontWeight: 700, color: '#9bd', marginBottom: 12 },
   watchRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderTop: '1px solid #0e1f2b', fontSize: 14 },
   miniBtn: { background: 'none', border: '1px solid #1d3b4d', color: '#9bd', borderRadius: 6, padding: '3px 10px', marginLeft: 6, cursor: 'pointer', fontSize: 12 },
+  monType: { background: '#0d2433', color: '#00E5FF', borderRadius: 5, padding: '1px 7px', fontFamily: 'monospace', fontSize: 11, marginRight: 6 },
 };

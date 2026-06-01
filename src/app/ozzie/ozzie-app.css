@@ -6,7 +6,11 @@
   min-height: 100vh; display: grid; grid-template-columns: 248px 1fr;
   background: radial-gradient(1200px 700px at 18% -10%, #0c1a28, var(--bg0) 60%);
   color: var(--tx); font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
 }
+.oz-main { min-width: 0; }
+.oz-col, .oz-cmd, .oz-dossier { min-width: 0; max-width: 100%; }
+.oz-top h1, .oz-top .sub { overflow: hidden; text-overflow: ellipsis; }
 .oz-mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 
 /* ── Sidebar ── */

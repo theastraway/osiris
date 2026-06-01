@@ -122,7 +122,7 @@ export default function OzzieConsole() {
     <div className="oz-app">
       {/* ── Sidebar ── */}
       <aside className="oz-side">
-        <a className="oz-brand" href="/"><img src="/app-logos/osiris.jpg" alt="" /><span><b>OZZIE</b><span>OSINT · MIND</span></span></a>
+        <a className="oz-brand" href="/"><img src="/ozzie-logo.jpg" alt="" /><span><b>OZZIE</b><span>OSINT · MIND</span></span></a>
         <nav className="oz-nav">
           {NAV.map((n) => (
             <button key={n.id} className={`oz-navitem${view === n.id ? ' active' : ''}${n.pro && !pro ? ' locked' : ''}`} onClick={() => setView(n.id)}>
@@ -303,7 +303,7 @@ export default function OzzieConsole() {
             <motion.div key="abt" className="oz-work solo" {...fade}>
               <div className="oz-col">
                 <div className="oz-about-hero">
-                  <img src="/app-logos/osiris.jpg" alt="" style={{ width: 60, height: 60, borderRadius: 14 }} />
+                  <img src="/ozzie-logo.jpg" alt="" style={{ width: 60, height: 60, borderRadius: 14 }} />
                   <h2>Ozzie investigates anything.</h2>
                   <p>Give Ozzie a domain, IP, company, person, or wallet. It searches 20+ live open-source-intelligence feeds, reasons through the leads, and hands you a fully cited dossier — then remembers it, so it gets sharper over time.</p>
                 </div>

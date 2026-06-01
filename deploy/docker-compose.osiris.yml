@@ -1,0 +1,70 @@
+# Osiris production stack for DO1-Achilles (45.55.224.170)
+# Astra AI — osiris.m-i-n-d.ai + ozzie.m-i-n-d.ai
+#
+# Phase 1 uses the upstream prebuilt image (fast, no build RAM on the shared box).
+# Phase 2+ swaps `image:` for our fork build once auth/Stripe/Ozzie UI land.
+#
+# Distinct project name + ports so the existing cc-bridge/OpenClaw services on
+# DO1 are never touched. Caddy terminates TLS and reverse-proxies both subdomains.
+
+name: osiris
+
+services:
+  osiris:
+    image: ghcr.io/aiacos/osiris:latest      # Phase 2+: build: { context: .. , dockerfile: ../Dockerfile }
+    container_name: osiris-app
+    env_file:
+      - path: ./.env.osiris
+        required: false
+    environment:
+      - NODE_OPTIONS=--dns-result-order=ipv4first
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+    expose:
+      - "3000"                               # internal only; Caddy fronts it
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks: [osiris_net]
+    mem_limit: 1024m                          # hard cap so we can't starve cc-bridge/OpenClaw
+    cpus: 1.0
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: osiris-caddy
+    ports:
+      - "80:80"                               # ACME HTTP-01 + redirect
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [osiris]
+    restart: unless-stopped
+    networks: [osiris_net]
+    mem_limit: 128m
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: osiris-postgres
+    environment:
+      - POSTGRES_USER=osiris
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      - POSTGRES_DB=osiris
+    volumes:
+      - osiris_pgdata:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    restart: unless-stopped
+    networks: [osiris_net]
+    mem_limit: 512m                           # used from Phase 2 (auth/billing/watchlists)
+
+networks:
+  osiris_net:
+    name: osiris_net
+
+volumes:
+  caddy_data:
+  caddy_config:
+  osiris_pgdata:

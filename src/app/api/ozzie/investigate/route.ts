@@ -11,7 +11,7 @@
  *  No fabricated facts: every claim traces to a tool observation.
  * ═══════════════════════════════════════════════════════════════
  */
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -117,7 +117,15 @@ function parseAction(raw: string): { action?: string; tool?: string; input?: str
   if (fence) s = fence[1].trim();
   const start = s.indexOf('{'); const end = s.lastIndexOf('}');
   if (start >= 0 && end > start) s = s.slice(start, end + 1);
-  try { return JSON.parse(s); } catch { return { action: 'final', dossier: raw }; }
+  // 1. straight parse
+  try { return JSON.parse(s); } catch { /* fall through */ }
+  // 2. models often emit literal newlines/tabs inside string values (invalid JSON) — escape and retry
+  try { return JSON.parse(s.replace(/[\n\r\t]/g, (m) => ({ '\n': '\\n', '\r': '\\r', '\t': '\\t' }[m] || m))); } catch { /* fall through */ }
+  // 3. salvage the dossier value directly
+  const m = s.match(/"dossier"\s*:\s*"([\s\S]*)"\s*}\s*$/);
+  if (m) return { action: 'final', dossier: m[1].replace(/\\n/g, '\n').replace(/\\"/g, '"') };
+  // 4. give up — treat the whole thing as the dossier
+  return { action: 'final', dossier: raw };
 }
 
 export async function POST(req: NextRequest) {
@@ -152,8 +160,10 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const title = `Ozzie Dossier — ${target} — ${new Date().toISOString().slice(0, 10)}`;
-  const docId = await mindSaveDossier(title, dossier);
+  // Persist to the @ozzie knowledge graph in the background so the user gets the
+  // dossier immediately (LightRAG ingestion can take >30s).
+  const title = `Ozzie Dossier - ${target} - ${new Date().toISOString().slice(0, 10)}`;
+  after(async () => { await mindSaveDossier(title, dossier); });
 
-  return NextResponse.json({ target, dossier, mind_document_id: docId, steps: trace.length, trace });
+  return NextResponse.json({ target, dossier, persisted_to_mind: Boolean(MIND_KEY), steps: trace.length, trace });
 }

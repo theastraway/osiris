@@ -76,6 +76,7 @@ services:
             case "$$now" in
               12:00) curl -s -X POST http://osiris:3000/api/ozzie/cron/daily-brief   -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
               13:00) curl -s -X POST http://osiris:3000/api/ozzie/cron/watchlist-scan -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
+              14:00) curl -s --max-time 230 -X POST http://osiris:3000/api/ozzie/cron/intel-report -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
             esac
             case "$${now#*:}" in
               00|20|40) curl -s -X POST http://osiris:3000/api/ozzie/cron/monitor-scan -H "X-Cron-Secret: $$CRON_SECRET" || true ;;

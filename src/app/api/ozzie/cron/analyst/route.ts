@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { postDoc } from '@/lib/ingest';
 import { sendEmail, alertDestination } from '@/lib/notify';
+import { logRun } from '@/lib/runlog';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 240;
@@ -71,5 +72,6 @@ export async function POST(req: NextRequest) {
     emailed = await sendEmail(to, `🛰️ Ozzie Signal Digest — ${signals.length} cross-domain leads`, html, signals.map((s) => `${s.entity}: ${s.line}`).join('\n\n'));
   }
 
+  await logRun('analyst', true, `dossiers ${dossiers} · signals ${signals.length}${signals.length ? ' (' + signals.map((s) => s.entity).join(', ') + ')' : ''}`);
   return NextResponse.json({ ok: true, evaluated: names.length, dossiers, signals: signals.length, emailed });
 }

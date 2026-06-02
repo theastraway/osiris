@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { listMonitors, saveMonitors, evaluate } from '@/lib/monitors';
 import { sendEmail, alertDestination } from '@/lib/notify';
+import { logRun } from '@/lib/runlog';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -46,5 +47,6 @@ export async function POST(req: NextRequest) {
   }
 
   await saveMonitors(monitors);
+  await logRun('monitors', true, `evaluated ${monitors.length} · fired ${fired.length}${fired.length ? ': ' + fired.map((f) => f.label).join(', ') : ''}`);
   return NextResponse.json({ ok: true, evaluated: monitors.length, fired: fired.length, alerts: fired.map((f) => f.label) });
 }

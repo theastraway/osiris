@@ -7,6 +7,7 @@
  */
 import { NextRequest, NextResponse, after } from 'next/server';
 import { sendEmail, alertDestination } from '@/lib/notify';
+import { logRun } from '@/lib/runlog';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 240;
@@ -76,5 +77,6 @@ export async function POST(req: NextRequest) {
     emailed = await sendEmail(to, `🛰️ ${title}`, html, report);
   }
 
+  await logRun('intel-report', true, `report ${report.length} chars · emailed ${emailed}`);
   return NextResponse.json({ ok: true, date, emailed, report_chars: report.length, lenses: Object.fromEntries(Object.entries(findings).map(([k, v]) => [k, v.length])) });
 }

@@ -6,6 +6,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getWatchlist, sendEmail } from '@/lib/notify';
+import { logRun } from '@/lib/runlog';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -42,5 +43,6 @@ export async function POST(req: NextRequest) {
   const text = results.map((x) => `${x.target}: ${x.summary}`).join('\n\n');
   const emailed = await sendEmail(BRIEF_EMAIL, `🛰️ Ozzie Watchlist Scan — ${date} (${results.length} targets)`, html, text);
 
+  await logRun('watchlist', true, `scanned ${results.length} · emailed ${emailed}`);
   return NextResponse.json({ ok: true, scanned: results.length, emailed, results: results.map((r) => ({ target: r.target, ok: r.ok })) });
 }

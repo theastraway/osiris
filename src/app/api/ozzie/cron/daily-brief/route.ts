@@ -5,6 +5,7 @@
  */
 import { NextRequest, NextResponse, after } from 'next/server';
 import { sendEmail } from '@/lib/notify';
+import { logRun } from '@/lib/runlog';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -56,5 +57,6 @@ export async function POST(req: NextRequest) {
     } catch { /* best effort */ }
   });
 
+  await logRun('daily-brief', true, `brief ${brief.length} chars · emailed ${sent}`);
   return NextResponse.json({ ok: true, emailed: sent, date, brief_chars: brief.length });
 }

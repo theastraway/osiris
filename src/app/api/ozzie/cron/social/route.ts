@@ -5,6 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { channels, publish, getSocialConfig } from '@/lib/blotato';
+import { logRun } from '@/lib/runlog';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -37,5 +38,6 @@ export async function POST(req: NextRequest) {
     const r = await publish(ch, post);
     results.push({ channel: ch.label, ok: r.ok });
   }
+  await logRun('social', true, `posted ${results.filter((r) => r.ok).length}/${results.length}`);
   return NextResponse.json({ ok: true, posted: results });
 }

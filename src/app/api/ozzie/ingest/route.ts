@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getState, setCursor, postDoc } from '@/lib/ingest';
 import { SOURCES } from '@/lib/ingest-sources';
 import { sense } from '@/lib/preprocess';
+import { logRun } from '@/lib/runlog';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 240;
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
       if (written >= CAP) break;
     }
     if (cursor && cursor !== prev) await setCursor(source, cursor);
+    await logRun(`ingest:${source}`, true, `found ${items.length} · written ${written} · dropped ${dropped}`);
     return NextResponse.json({ ok: true, source, found: items.length, written, dropped_as_noise: dropped });
   } catch (e) {
     return NextResponse.json({ ok: false, source, error: (e as Error).message }, { status: 502 });

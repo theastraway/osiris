@@ -12,7 +12,7 @@ const MODEL = process.env.OZZIE_MODEL || 'openrouter/owl-alpha';
 const FALLBACK = process.env.OZZIE_FALLBACK_MODEL || 'anthropic/claude-3.5-haiku';
 const THRESHOLD = Number(process.env.SENSE_THRESHOLD || 0.35);   // below this = noise, dropped
 
-export interface Sensed { title: string; content: string; tags: string[]; significance: number }
+export interface Sensed { title: string; content: string; tags: string[]; significance: number; entities: Array<{ name: string; type: string }>; relationships: string[] }
 
 async function owl(prompt: string): Promise<string> {
   const call = async (model: string) => {
@@ -40,7 +40,7 @@ function parse(raw: string): Record<string, unknown> | null {
 
 /** Process one raw item → structured doc, or null if below the significance threshold. */
 export async function sense(raw: { title: string; content: string; baseTags: string[] }): Promise<Sensed | null> {
-  if (!OPENROUTER_KEY) return { title: raw.title, content: raw.content, tags: raw.baseTags, significance: 1 }; // no owl → pass through raw
+  if (!OPENROUTER_KEY) return { title: raw.title, content: raw.content, tags: raw.baseTags, significance: 1, entities: [], relationships: [] }; // no owl → pass through raw
   const prompt = `You are the SENSE layer of Ozzie, an OSINT analyst. Turn this raw intelligence item into structured analyst form. Respond with ONLY JSON:
 {"significance":0.0-1.0,"title":"normalized one-line title","summary":"2-3 sentence analyst summary of the key facts and why it matters","entities":[{"name":"canonical name","type":"organization|person|product|location|cve|agency|vessel|wallet|event"}],"relationships":["EntityA — relation — EntityB"],"tags":["..."]}
 significance: 0.2=noise/boilerplate, 0.5=routine, 0.8=notable, 0.95=critical for an analyst.
@@ -49,7 +49,7 @@ title: ${raw.title}
 content: ${raw.content.slice(0, 2000)}`;
   let o: Record<string, unknown> | null = null;
   try { o = parse(await owl(prompt)); } catch { o = null; }
-  if (!o) return { title: raw.title, content: raw.content, tags: raw.baseTags, significance: 0.5 }; // parse fail → keep raw, don't lose data
+  if (!o) return { title: raw.title, content: raw.content, tags: raw.baseTags, significance: 0.5, entities: [], relationships: [] }; // parse fail → keep raw
   const sig = Number(o.significance ?? 0.5);
   if (sig < THRESHOLD) return null;  // dropped as noise
 
@@ -64,5 +64,5 @@ content: ${raw.content.slice(0, 2000)}`;
     `\nSignificance: ${sig.toFixed(2)}.`,
     `\n---\n${raw.content.slice(0, 1200)}`,
   ].filter(Boolean).join('\n');
-  return { title: String(o.title || raw.title).slice(0, 120), content, tags, significance: sig };
+  return { title: String(o.title || raw.title).slice(0, 120), content, tags, significance: sig, entities, relationships: rels };
 }

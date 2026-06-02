@@ -90,6 +90,10 @@ services:
               35) curl -s -X POST "http://osiris:3000/api/ozzie/ingest?source=quakes"    -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
               50) curl -s -X POST "http://osiris:3000/api/ozzie/ingest?source=contracts" -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
             esac
+            # autonomous analyst cycle — free (owl + Postgres), every 30 min
+            case "$${now#*:}" in
+              07|37) curl -s --max-time 235 -X POST http://osiris:3000/api/ozzie/cron/analyst -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
+            esac
             last="$$now"
           fi
           sleep 30

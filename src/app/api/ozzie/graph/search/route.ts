@@ -1,38 +1,28 @@
 /**
  * GET/POST /api/ozzie/graph/search?q=...
- * Public retrieval over Ozzie's own graph: Postgres full-text search → owl
- * synthesises a cited intelligence answer. Free (owl + Postgres), no MIND credits.
+ * Public retrieval over Ozzie's MIND knowledge graph — MIND's graph + semantic RAG
+ * does the heavy retrieval, owl sharpens the answer. The KG is the product.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { searchItems, getDossier } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
-const MODEL = process.env.OZZIE_MODEL || 'openrouter/owl-alpha';
-
-async function owl(prompt: string): Promise<string> {
-  const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST', headers: { 'Authorization': `Bearer ${OPENROUTER_KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://osiris.theastraway.com', 'X-Title': 'Osiris Ozzie' },
-    body: JSON.stringify({ model: MODEL, messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 900 }),
-    signal: AbortSignal.timeout(45000),
-  });
-  return (await r.json()).choices?.[0]?.message?.content?.trim() || '';
-}
+const MIND_BASE = process.env.OSIRIS_MIND_BASE_URL || 'https://mindapp.onrender.com';
+const MIND_KEY = process.env.OSIRIS_MIND_API_KEY || '';
 
 async function answer(q: string) {
-  const dossier = await getDossier(q);
-  const items = await searchItems(q, 12);
-  if (!items.length && !dossier) return { query: q, answer: 'No intelligence found in the graph yet for that query.', sources: 0 };
-  const ctx = [
-    dossier ? `LIVING DOSSIER (updated ${dossier.updated}):\n${dossier.content}` : '',
-    ...items.map((i, n) => `[${n + 1}] (${i.source}) ${i.title}\n${i.content.slice(0, 600)}`),
-  ].filter(Boolean).join('\n\n');
-  const synth = OPENROUTER_KEY
-    ? await owl(`You are Ozzie, an OSINT analyst. Answer the question using ONLY the intelligence below. Cite sources by their [n] or dossier. Be specific and analytical; if thin, say so.\n\nQUESTION: ${q}\n\nINTELLIGENCE:\n${ctx.slice(0, 9000)}`)
-    : ctx.slice(0, 2000);
-  return { query: q, answer: synth, sources: items.length, has_dossier: Boolean(dossier) };
+  if (!MIND_KEY) return { query: q, answer: 'Graph not configured.', sources: 0 };
+  try {
+    const r = await fetch(`${MIND_BASE}/developer/v1/query`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': MIND_KEY },
+      body: JSON.stringify({ query: q, mode: 'hybrid' }), signal: AbortSignal.timeout(50000),
+    });
+    const j = (await r.json()) as { response?: string; sources?: unknown[] };
+    return { query: q, answer: j.response || 'No intelligence found in the graph yet for that query.', sources: (j.sources || []).length };
+  } catch (e) {
+    return { query: q, answer: `Retrieval error: ${(e as Error).message}`, sources: 0 };
+  }
 }
 
 export async function GET(req: NextRequest) {

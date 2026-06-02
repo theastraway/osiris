@@ -18,7 +18,7 @@ const MIND_BASE = process.env.OSIRIS_MIND_BASE_URL || 'https://mindapp.onrender.
 const MIND_KEY = process.env.OSIRIS_MIND_API_KEY || '';
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 const MODEL = process.env.OZZIE_MODEL || 'openrouter/owl-alpha';
-const CYCLE = Number(process.env.ANALYST_CYCLE || 4);
+const CYCLE = Number(process.env.ANALYST_CYCLE || 2);  // entities/cycle — keep run < maxDuration (MIND queries are slow)
 
 async function mindQuery(query: string): Promise<string> {
   try {

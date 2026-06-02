@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 const MIND_BASE = process.env.OSIRIS_MIND_BASE_URL || 'https://mindapp.onrender.com';
 const MIND_KEY = process.env.OSIRIS_MIND_API_KEY || '';
@@ -16,7 +16,7 @@ async function answer(q: string) {
   try {
     const r = await fetch(`${MIND_BASE}/developer/v1/query`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': MIND_KEY },
-      body: JSON.stringify({ query: q, mode: 'hybrid' }), signal: AbortSignal.timeout(50000),
+      body: JSON.stringify({ query: q, mode: 'hybrid' }), signal: AbortSignal.timeout(95000),
     });
     const j = (await r.json()) as { response?: string; sources?: unknown[] };
     return { query: q, answer: j.response || 'No intelligence found in the graph yet for that query.', sources: (j.sources || []).length };

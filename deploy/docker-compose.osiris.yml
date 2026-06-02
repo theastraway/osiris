@@ -82,10 +82,12 @@ services:
             esac
             # 24/7 OSINT ingestion → @ozzie knowledge graph (staggered, capped)
             case "$${now#*:}" in
-              05) curl -s -X POST "http://osiris:3000/api/ozzie/ingest?source=cve"    -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
-              10|40) curl -s -X POST "http://osiris:3000/api/ozzie/ingest?source=edgar" -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
-              25|55) curl -s -X POST "http://osiris:3000/api/ozzie/ingest?source=gdelt" -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
-              35) curl -s -X POST "http://osiris:3000/api/ozzie/ingest?source=quakes" -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
+              05) curl -s -X POST "http://osiris:3000/api/ozzie/ingest?source=cve"       -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
+              10|40) curl -s -X POST "http://osiris:3000/api/ozzie/ingest?source=edgar"    -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
+              15) curl -s -X POST "http://osiris:3000/api/ozzie/ingest?source=cyber"     -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
+              25|55) curl -s -X POST "http://osiris:3000/api/ozzie/ingest?source=gdelt"    -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
+              35) curl -s -X POST "http://osiris:3000/api/ozzie/ingest?source=quakes"    -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
+              50) curl -s -X POST "http://osiris:3000/api/ozzie/ingest?source=contracts" -H "X-Cron-Secret: $$CRON_SECRET" || true ;;
             esac
             last="$$now"
           fi

@@ -81,4 +81,35 @@ async function quakes(prev: string): Promise<FetchResult> {
   return { items, cursor };
 }
 
-export const SOURCES: Record<string, (prev: string) => Promise<FetchResult>> = { cve, edgar, gdelt, quakes };
+/* ── TIER 1 · actively-exploited vulnerabilities (CISA KEV, via our feed) ── */
+async function cyber(prev: string): Promise<FetchResult> {
+  const d = (await getJSON(`${SELF}/api/cyber-threats`)) as { threats?: Array<{ id: string; name: string; vendor: string; product: string; severity: string; date: string; source: string }> } | null;
+  if (!d || !d.threats) return { items: [], cursor: prev };
+  const items: Item[] = []; const seen = new Set(prev.split('|'));
+  for (const t of d.threats) {
+    if (seen.has(t.id)) continue;
+    items.push({ title: `${t.id}: ${t.name}`.slice(0, 120), content: `# ${t.name}\nID: ${t.id}\nVendor: ${t.vendor} · Product: ${t.product}\nSeverity: ${t.severity} · Added: ${t.date}\nSource: ${t.source} — CISA Known Exploited Vulnerabilities (actively exploited in the wild).\nEntity types: cve, organization, product.`, tags: ['ozzie', 'ingest', 'cyber', 'kev', 'cve'] });
+  }
+  return { items, cursor: d.threats.slice(0, 80).map((t) => t.id).join('|') || prev };
+}
+
+/* ── TIER 1 · US federal contract awards (USAspending) ── */
+async function contracts(prev: string): Promise<FetchResult> {
+  const today = new Date().toISOString().slice(0, 10);
+  const start = new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10);
+  const body = { filters: { award_type_codes: ['A', 'B', 'C', 'D'], time_period: [{ start_date: start, end_date: today }] }, fields: ['Award ID', 'Recipient Name', 'Award Amount', 'Awarding Agency', 'Description'], sort: 'Award Amount', order: 'desc', limit: 20 };
+  let d: { results?: Array<Record<string, unknown>> } | null = null;
+  try {
+    const r = await fetch('https://api.usaspending.gov/api/v2/search/spending_by_award/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': UA }, body: JSON.stringify(body), signal: AbortSignal.timeout(25000) });
+    const t = await r.text(); d = JSON.parse(t);
+  } catch { return { items: [], cursor: prev }; }
+  const results = d?.results || []; const items: Item[] = []; const seen = new Set(prev.split('|'));
+  for (const a of results) {
+    const id = String(a['Award ID'] || a['generated_internal_id'] || '');
+    if (!id || seen.has(id)) continue;
+    items.push({ title: `Federal award: ${a['Recipient Name']} ($${a['Award Amount']})`.slice(0, 120), content: `# US federal contract award\nRecipient: ${a['Recipient Name']}\nAmount: $${a['Award Amount']}\nAgency: ${a['Awarding Agency']}\nAward ID: ${id}\n${a['Description'] || ''}\n\nSource: USAspending.gov. Entity types: organization, government_agency, contract.`, tags: ['ozzie', 'ingest', 'contracts', 'financial', 'government'] });
+  }
+  return { items, cursor: results.map((a) => String(a['Award ID'] || '')).join('|') || prev };
+}
+
+export const SOURCES: Record<string, (prev: string) => Promise<FetchResult>> = { cve, cyber, edgar, contracts, gdelt, quakes };

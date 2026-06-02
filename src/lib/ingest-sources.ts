@@ -11,7 +11,8 @@ const UA = 'OsirisOzzie/1.0 (intel@theastraway.com)';
 
 async function getJSON(url: string, headers: Record<string, string> = {}): Promise<unknown> {
   const r = await fetch(url, { headers: { 'User-Agent': UA, ...headers }, signal: AbortSignal.timeout(25000) });
-  return r.json();
+  const t = await r.text();
+  try { return JSON.parse(t); } catch { return null; }   // upstream returned a text error / rate-limit notice
 }
 async function getText(url: string): Promise<string> {
   const r = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(25000) });
@@ -22,7 +23,8 @@ async function getText(url: string): Promise<string> {
 async function cve(prev: string): Promise<FetchResult> {
   const end = new Date(); const start = new Date(end.getTime() - 24 * 3600_000);
   const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=${start.toISOString().slice(0, 23)}&pubEndDate=${end.toISOString().slice(0, 23)}&cvssV3Severity=CRITICAL`;
-  const d = (await getJSON(url)) as { vulnerabilities?: Array<{ cve: { id: string; published: string; descriptions: Array<{ lang: string; value: string }>; metrics?: { cvssMetricV31?: Array<{ cvssData: { baseScore: number } }> } } }> };
+  const d = (await getJSON(url)) as { vulnerabilities?: Array<{ cve: { id: string; published: string; descriptions: Array<{ lang: string; value: string }>; metrics?: { cvssMetricV31?: Array<{ cvssData: { baseScore: number } }> } } }> } | null;
+  if (!d || !d.vulnerabilities) return { items: [], cursor: prev };
   const items: Item[] = [];
   let cursor = prev;
   for (const v of d.vulnerabilities || []) {
@@ -55,7 +57,8 @@ async function edgar(prev: string): Promise<FetchResult> {
 /* ── TIER 2 · global events (GDELT DOC API) ── */
 async function gdelt(prev: string): Promise<FetchResult> {
   const q = encodeURIComponent('(sanctions OR cyberattack OR "data breach" OR sanctioned OR espionage OR "money laundering")');
-  const d = (await getJSON(`https://api.gdeltproject.org/api/v2/doc/doc?query=${q}&mode=ArtList&maxrecords=25&format=json&timespan=45min`)) as { articles?: Array<{ url: string; title: string; seendate: string; domain: string; sourcecountry: string }> };
+  const d = (await getJSON(`https://api.gdeltproject.org/api/v2/doc/doc?query=${q}&mode=ArtList&maxrecords=25&format=json&timespan=45min`)) as { articles?: Array<{ url: string; title: string; seendate: string; domain: string; sourcecountry: string }> } | null;
+  if (!d || !d.articles) return { items: [], cursor: prev };   // rate-limited / no JSON → skip this tick
   const items: Item[] = []; let cursor = prev; const seen = new Set(prev.split('|'));
   for (const a of d.articles || []) {
     if (!a.url || seen.has(a.url)) continue;
@@ -67,7 +70,8 @@ async function gdelt(prev: string): Promise<FetchResult> {
 
 /* ── TIER 2 · major seismic events (via our own live feed) ── */
 async function quakes(prev: string): Promise<FetchResult> {
-  const d = (await getJSON(`${SELF}/api/earthquakes`)) as { earthquakes?: Array<{ id: string; magnitude: number; place: string; time: number; url: string; lat: number; lng: number }> };
+  const d = (await getJSON(`${SELF}/api/earthquakes`)) as { earthquakes?: Array<{ id: string; magnitude: number; place: string; time: number; url: string; lat: number; lng: number }> } | null;
+  if (!d || !d.earthquakes) return { items: [], cursor: prev };
   const items: Item[] = []; let cursor = prev; const seen = new Set(prev.split('|'));
   for (const q of (d.earthquakes || []).filter((x) => x.magnitude >= 5.5)) {
     if (seen.has(q.id)) continue;

@@ -22,7 +22,7 @@ async function mindQuery(query: string): Promise<string> {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': MIND_KEY },
       body: JSON.stringify({ query, mode: 'hybrid' }), signal: AbortSignal.timeout(45000),
     });
-    return ((await r.json()) as { answer?: string }).answer || '';
+    return ((await r.json()) as { response?: string }).response || '';
   } catch { return ''; }
 }
 async function owl(prompt: string, maxTokens = 1500): Promise<string> {

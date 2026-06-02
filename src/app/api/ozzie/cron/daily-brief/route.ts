@@ -21,7 +21,7 @@ async function mindQuery(q: string): Promise<string> {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': MIND_KEY },
       body: JSON.stringify({ query: q }), signal: AbortSignal.timeout(30000),
     });
-    return ((await r.json()) as { answer?: string }).answer || '';
+    return ((await r.json()) as { response?: string }).response || '';
   } catch { return ''; }
 }
 

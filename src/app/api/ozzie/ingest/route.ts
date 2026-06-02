@@ -1,16 +1,19 @@
 /**
  * POST /api/ozzie/ingest?source=<name>  (header X-Cron-Secret)
- * Runs one ingestion source: fetch new items since cursor → cap → post to the
- * @ozzie knowledge graph → advance cursor. Drives the 24/7 OSINT database.
+ * One ingestion source → fetch new items → run each through the SENSE layer
+ * (owl normalises + scores + structures, drops noise) → post the high-signal,
+ * entity-rich docs to the @ozzie knowledge graph → advance cursor.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { getState, setCursor, ingestBatch } from '@/lib/ingest';
+import { getState, setCursor, postDoc } from '@/lib/ingest';
 import { SOURCES } from '@/lib/ingest-sources';
+import { sense } from '@/lib/preprocess';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 240;
 
-const CAP = Number(process.env.INGEST_CAP || 4);   // max docs/source/run — bounds run time (<240s) + MIND credit burn
+const CAP = Number(process.env.INGEST_CAP || 3);        // max docs written/run
+const PRE_CAP = Number(process.env.INGEST_PRE_CAP || 6); // max raw items run through Sense/run
 
 export async function POST(req: NextRequest) {
   if (!process.env.CRON_SECRET || req.headers.get('x-cron-secret') !== process.env.CRON_SECRET) {
@@ -23,9 +26,16 @@ export async function POST(req: NextRequest) {
   try {
     const prev = (await getState())[source] || '';
     const { items, cursor } = await fetcher(prev);
-    const ingested = await ingestBatch(items, CAP);
+
+    let dropped = 0, ingested = 0;
+    for (const raw of items.slice(0, PRE_CAP)) {
+      const s = await sense({ title: raw.title, content: raw.content, baseTags: raw.tags });
+      if (!s) { dropped++; continue; }                 // below significance threshold = noise
+      if (await postDoc(s.title, s.content, s.tags)) ingested++;
+      if (ingested >= CAP) break;
+    }
     if (cursor && cursor !== prev) await setCursor(source, cursor);
-    return NextResponse.json({ ok: true, source, found: items.length, ingested, capped: items.length > CAP });
+    return NextResponse.json({ ok: true, source, found: items.length, ingested, dropped_as_noise: dropped });
   } catch (e) {
     return NextResponse.json({ ok: false, source, error: (e as Error).message }, { status: 502 });
   }

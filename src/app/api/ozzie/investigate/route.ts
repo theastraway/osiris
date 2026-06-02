@@ -51,7 +51,7 @@ async function mindQuery(query: string): Promise<string> {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': MIND_KEY },
       body: JSON.stringify({ query }), signal: AbortSignal.timeout(30000),
     });
-    return ((await r.json().catch(() => ({}))) as { answer?: string }).answer || 'no prior knowledge';
+    return ((await r.json().catch(() => ({}))) as { response?: string }).response || 'no prior knowledge';
   } catch { return 'MIND query failed'; }
 }
 

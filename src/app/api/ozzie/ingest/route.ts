@@ -10,7 +10,7 @@ import { SOURCES } from '@/lib/ingest-sources';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 240;
 
-const CAP = Number(process.env.INGEST_CAP || 8);   // max docs/source/run — protects MIND ingestion + credits
+const CAP = Number(process.env.INGEST_CAP || 4);   // max docs/source/run — bounds run time (<240s) + MIND credit burn
 
 export async function POST(req: NextRequest) {
   if (!process.env.CRON_SECRET || req.headers.get('x-cron-secret') !== process.env.CRON_SECRET) {

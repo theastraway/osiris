@@ -14,6 +14,10 @@ export const STRIPE_PRICE_PRO = process.env.STRIPE_PRICE_PRO || '';
 export const PUBLIC_URL = process.env.OSIRIS_PUBLIC_URL || 'https://osiris.theastraway.com';
 export const COMP_TOKEN = process.env.OSIRIS_COMP_TOKEN || '';
 export const PRO_PRICE_USD = 49;
+export const ADMIN_COOKIE = 'osiris_admin';
+export const ADMIN_TOKEN = process.env.OZZIE_ADMIN_TOKEN || '';
+export const signAdmin = () => signSession({ email: 'admin@osiris', sub: 'admin', days: 30 });
+export const isAdmin = (cookie: string | undefined) => verifySession(cookie)?.email === 'admin@osiris';
 
 const b64u = (s: string | Buffer) => Buffer.from(s).toString('base64url');
 

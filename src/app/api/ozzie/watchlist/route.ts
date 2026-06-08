@@ -6,6 +6,7 @@ import { getWatchlist, setWatchlist } from '@/lib/notify';
 export const dynamic = 'force-dynamic';
 
 function gate(req: NextRequest): boolean {
+  if (process.env.CRON_SECRET && req.headers.get('x-ozzie-service') === process.env.CRON_SECRET) return true;
   return Boolean(verifySession(req.cookies.get(PRO_COOKIE)?.value));
 }
 

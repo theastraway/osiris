@@ -22,8 +22,8 @@ const DIR = process.env.OSIRIS_DATA_DIR || '/data';
 const POSTED = `${DIR}/x_posted.json`;
 const MODEFILE = `${DIR}/x_mode_counter.json`;
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
-const MODEL = process.env.OZZIE_MODEL || 'openrouter/owl-alpha';
-const FALLBACK = process.env.OZZIE_FALLBACK_MODEL || 'anthropic/claude-3.5-haiku';
+const MODEL = process.env.OZZIE_MODEL || 'openrouter/free';
+const FALLBACK = process.env.OZZIE_FALLBACK_MODEL || 'openrouter/free';
 const AUTOPOST = process.env.OZZIE_X_AUTOPOST === '1';        // dark by default
 const OZZIE_X_ACCOUNT = process.env.BLOTATO_ACCOUNT_OZZIE_X || ''; // @ozzie_ai in Blotato
 const SEV: Record<string, number> = { low: 1, medium: 2, high: 3, critical: 4 };

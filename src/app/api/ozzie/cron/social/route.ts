@@ -13,7 +13,7 @@ export const maxDuration = 120;
 const MIND_BASE = process.env.OSIRIS_MIND_BASE_URL || 'https://mindapp.onrender.com';
 const MIND_KEY = process.env.OSIRIS_MIND_API_KEY || '';
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
-const MODEL = process.env.OZZIE_MODEL || 'openrouter/owl-alpha';
+const MODEL = process.env.OZZIE_MODEL || 'openrouter/free';
 
 async function mindQuery(q: string): Promise<string> {
   try { const r = await fetch(`${MIND_BASE}/developer/v1/query`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': MIND_KEY }, body: JSON.stringify({ query: q, mode: 'hybrid' }), signal: AbortSignal.timeout(60000) }); return ((await r.json()) as { response?: string }).response || ''; } catch { return ''; }

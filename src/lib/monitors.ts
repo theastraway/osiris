@@ -103,7 +103,7 @@ User request: "${text}"`;
     const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://osiris.theastraway.com', 'X-Title': 'Osiris Ozzie' },
-      body: JSON.stringify({ model: process.env.OZZIE_MODEL || 'openrouter/owl-alpha', messages: [{ role: 'user', content: prompt }], temperature: 0, max_tokens: 200 }),
+      body: JSON.stringify({ model: process.env.OZZIE_MODEL || 'openrouter/free', messages: [{ role: 'user', content: prompt }], temperature: 0, max_tokens: 200 }),
       signal: AbortSignal.timeout(30000),
     });
     let s = (await r.json()).choices?.[0]?.message?.content?.trim() || '';

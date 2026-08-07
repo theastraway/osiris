@@ -9,8 +9,8 @@
 import { isClichedFiller } from '@/lib/x-cadence';
 
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
-const MODEL = process.env.OZZIE_MODEL || 'openrouter/owl-alpha';
-const FALLBACK = process.env.OZZIE_FALLBACK_MODEL || 'anthropic/claude-3.5-haiku';
+const MODEL = process.env.OZZIE_MODEL || 'openrouter/free';
+const FALLBACK = process.env.OZZIE_FALLBACK_MODEL || 'openrouter/free';
 
 /* Real, well-known public accounts Ozzie may tag. Anything not here is stripped —
  * this single rule kills hallucinated / wrong @handles entirely. Extend as needed. */

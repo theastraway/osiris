@@ -17,7 +17,7 @@ export const maxDuration = 90;
 const MIND_BASE = process.env.OSIRIS_MIND_BASE_URL || 'https://mindapp.onrender.com';
 const MIND_KEY = process.env.OSIRIS_MIND_API_KEY || '';
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
-const MODEL = process.env.OZZIE_MODEL || 'openrouter/owl-alpha';
+const MODEL = process.env.OZZIE_MODEL || 'openrouter/free';
 const LOG = `${process.env.OSIRIS_DATA_DIR || '/data'}/social_log.json`;
 
 async function mindQuery(q: string): Promise<string> {

@@ -19,8 +19,8 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 150;
 
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
-const OZZIE_MODEL = process.env.OZZIE_MODEL || 'openrouter/owl-alpha';
-const OZZIE_FALLBACK_MODEL = process.env.OZZIE_FALLBACK_MODEL || 'anthropic/claude-3.5-haiku';
+const OZZIE_MODEL = process.env.OZZIE_MODEL || 'openrouter/free';
+const OZZIE_FALLBACK_MODEL = process.env.OZZIE_FALLBACK_MODEL || 'openrouter/free';
 const MIND_BASE = process.env.OSIRIS_MIND_BASE_URL || 'https://mindapp.onrender.com';
 const MIND_KEY = process.env.OSIRIS_MIND_API_KEY || '';
 const SELF_BASE = process.env.OSIRIS_SELF_BASE || 'http://localhost:3000';

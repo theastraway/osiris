@@ -8,8 +8,8 @@
  * graph MIND builds is clean and high-signal. owl is free, so this is ~free.
  */
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
-const MODEL = process.env.OZZIE_MODEL || 'openrouter/owl-alpha';
-const FALLBACK = process.env.OZZIE_FALLBACK_MODEL || 'anthropic/claude-3.5-haiku';
+const MODEL = process.env.OZZIE_MODEL || 'openrouter/free';
+const FALLBACK = process.env.OZZIE_FALLBACK_MODEL || 'openrouter/free';
 const THRESHOLD = Number(process.env.SENSE_THRESHOLD || 0.35);   // below this = noise, dropped
 
 export interface Sensed { title: string; content: string; tags: string[]; significance: number; entities: Array<{ name: string; type: string }>; relationships: string[] }

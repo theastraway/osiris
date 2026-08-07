@@ -14,8 +14,8 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 200;
 
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
-const MODEL = process.env.OZZIE_MODEL || 'openrouter/owl-alpha';
-const FALLBACK = process.env.OZZIE_FALLBACK_MODEL || 'anthropic/claude-3.5-haiku';
+const MODEL = process.env.OZZIE_MODEL || 'openrouter/free';
+const FALLBACK = process.env.OZZIE_FALLBACK_MODEL || 'openrouter/free';
 const SELF = process.env.OSIRIS_SELF_BASE || 'http://localhost:3000';
 const newId = () => `m_${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;
 
